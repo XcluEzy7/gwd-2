@@ -162,14 +162,17 @@ test("loadStoredEnvKeys hydrates process.env from auth.json", async () => {
   const authPath = join(tmp, "auth.json");
   writeFileSync(authPath, JSON.stringify({
     brave: { type: "api_key", key: "test-brave-key" },
+    brave_answers: { type: "api_key", key: "test-answers-key" },
     context7: { type: "api_key", key: "test-ctx7-key" },
   }));
 
   // Clear any existing env vars
   const origBrave = process.env.BRAVE_API_KEY;
+  const origBraveAnswers = process.env.BRAVE_ANSWERS_KEY;
   const origCtx7 = process.env.CONTEXT7_API_KEY;
   const origJina = process.env.JINA_API_KEY;
   delete process.env.BRAVE_API_KEY;
+  delete process.env.BRAVE_ANSWERS_KEY;
   delete process.env.CONTEXT7_API_KEY;
   delete process.env.JINA_API_KEY;
 
@@ -178,11 +181,13 @@ test("loadStoredEnvKeys hydrates process.env from auth.json", async () => {
     loadStoredEnvKeys(auth);
 
     assert.equal(process.env.BRAVE_API_KEY, "test-brave-key", "BRAVE_API_KEY hydrated");
+    assert.equal(process.env.BRAVE_ANSWERS_KEY, "test-answers-key", "BRAVE_ANSWERS_KEY hydrated");
     assert.equal(process.env.CONTEXT7_API_KEY, "test-ctx7-key", "CONTEXT7_API_KEY hydrated");
     assert.equal(process.env.JINA_API_KEY, undefined, "JINA_API_KEY not set (not in auth)");
   } finally {
     // Restore original env
     if (origBrave) process.env.BRAVE_API_KEY = origBrave; else delete process.env.BRAVE_API_KEY;
+    if (origBraveAnswers) process.env.BRAVE_ANSWERS_KEY = origBraveAnswers; else delete process.env.BRAVE_ANSWERS_KEY;
     if (origCtx7) process.env.CONTEXT7_API_KEY = origCtx7; else delete process.env.CONTEXT7_API_KEY;
     if (origJina) process.env.JINA_API_KEY = origJina; else delete process.env.JINA_API_KEY;
     rmSync(tmp, { recursive: true, force: true });
@@ -322,6 +327,7 @@ test("gsd launches and loads extensions without errors", async () => {
       env: {
         ...process.env,
         BRAVE_API_KEY: "test",
+        BRAVE_ANSWERS_KEY: "test",
         CONTEXT7_API_KEY: "test",
         JINA_API_KEY: "test",
       },

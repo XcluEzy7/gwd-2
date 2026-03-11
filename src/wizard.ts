@@ -60,6 +60,7 @@ async function promptMasked(question: string): Promise<string> {
 export function loadStoredEnvKeys(authStorage: AuthStorage): void {
   const providers: Array<[string, string]> = [
     ['brave', 'BRAVE_API_KEY'],
+    ['brave_answers', 'BRAVE_ANSWERS_KEY'],
     ['context7', 'CONTEXT7_API_KEY'],
     ['jina', 'JINA_API_KEY'],
   ]
@@ -87,15 +88,17 @@ export function loadStoredEnvKeys(authStorage: AuthStorage): void {
  */
 export async function runWizardIfNeeded(authStorage: AuthStorage): Promise<void> {
   const needsBrave = !authStorage.has('brave') && !process.env.BRAVE_API_KEY
+  const needsBraveAnswers = !authStorage.has('brave_answers') && !process.env.BRAVE_ANSWERS_KEY
   const needsContext7 = !authStorage.has('context7') && !process.env.CONTEXT7_API_KEY
   const needsJina = !authStorage.has('jina') && !process.env.JINA_API_KEY
 
-  if (!needsBrave && !needsContext7 && !needsJina) {
+  if (!needsBrave && !needsBraveAnswers && !needsContext7 && !needsJina) {
     return
   }
 
   const missing = [
     needsBrave && 'Brave Search',
+    needsBraveAnswers && 'Brave Answers',
     needsContext7 && 'Context7',
     needsJina && 'Jina',
   ]
@@ -115,10 +118,18 @@ export async function runWizardIfNeeded(authStorage: AuthStorage): Promise<void>
   process.stdout.write('[gsd] Press Enter to skip any key you want to set up later.\n\n')
 
   if (needsBrave) {
-    const key = await promptMasked('Brave Search API key (optional): ')
+    const key = await promptMasked('Brave Search API key (optional, for web search + LLM context): ')
     if (key) {
       authStorage.set('brave', { type: 'api_key', key })
       process.env.BRAVE_API_KEY = key
+    }
+  }
+
+  if (needsBraveAnswers) {
+    const key = await promptMasked('Brave Answers API key (optional, for AI-generated answers): ')
+    if (key) {
+      authStorage.set('brave_answers', { type: 'api_key', key })
+      process.env.BRAVE_ANSWERS_KEY = key
     }
   }
 

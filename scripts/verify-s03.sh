@@ -88,6 +88,7 @@ tmp4=$(mktemp)
   env -i HOME="$HOME" PATH="$PATH" \
     ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
     BRAVE_API_KEY="test-brave" \
+    BRAVE_ANSWERS_KEY="test-answers" \
     CONTEXT7_API_KEY="test-ctx7" \
     JINA_API_KEY="test-jina" \
     node dist/loader.js < /dev/null > "$tmp4" 2>&1
@@ -111,8 +112,8 @@ echo "--- loadStoredEnvKeys hydration ---"
 # ----------------------------------------------------------------
 # Check 5 — Structural: env var names compiled into dist/wizard.js
 # ----------------------------------------------------------------
-if grep -q "BRAVE_API_KEY" dist/wizard.js && grep -q "CONTEXT7_API_KEY" dist/wizard.js && grep -q "JINA_API_KEY" dist/wizard.js; then
-  pass "5 — dist/wizard.js contains all three optional key env var names"
+if grep -q "BRAVE_API_KEY" dist/wizard.js && grep -q "BRAVE_ANSWERS_KEY" dist/wizard.js && grep -q "CONTEXT7_API_KEY" dist/wizard.js && grep -q "JINA_API_KEY" dist/wizard.js; then
+  pass "5 — dist/wizard.js contains all four optional key env var names"
 else
   fail "5 — dist/wizard.js missing one or more optional key env var names"
 fi
