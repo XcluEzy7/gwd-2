@@ -64,7 +64,6 @@ import {
   getSliceBranchName,
   switchToMain,
   mergeSliceToMain,
-  getCurrentBranch,
 } from "./worktree.ts";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { makeUI, GLYPH, INDENT } from "../shared/ui.js";
