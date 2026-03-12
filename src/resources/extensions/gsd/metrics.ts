@@ -129,8 +129,9 @@ export function snapshotUnitMetrics(
         tokens.cacheRead += msg.usage.cacheRead ?? 0;
         tokens.cacheWrite += msg.usage.cacheWrite ?? 0;
         tokens.total += msg.usage.totalTokens ?? 0;
-        if (msg.usage.cost) {
-          cost += msg.usage.cost.total ?? 0;
+        if (msg.usage.cost != null) {
+          const c = msg.usage.cost;
+          cost += typeof c === "number" ? c : (c.total ?? 0);
         }
       }
       // Count tool calls in this message
@@ -296,9 +297,10 @@ export function getProjectTotals(units: UnitMetrics[]): ProjectTotals {
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
 export function formatCost(cost: number): string {
-  if (cost < 0.01) return `$${cost.toFixed(4)}`;
-  if (cost < 1) return `$${cost.toFixed(3)}`;
-  return `$${cost.toFixed(2)}`;
+  const n = Number(cost) || 0;
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  if (n < 1) return `$${n.toFixed(3)}`;
+  return `$${n.toFixed(2)}`;
 }
 
 /**
