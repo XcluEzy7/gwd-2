@@ -66,6 +66,37 @@ export {
 	writeTool,
 } from "./write.js";
 export {
+	createHashlineEditTool,
+	type HashlineEditInput,
+	type HashlineEditItem,
+	type HashlineEditOperations,
+	type HashlineEditToolDetails,
+	type HashlineEditToolOptions,
+	hashlineEditTool,
+} from "./hashline-edit.js";
+export {
+	createHashlineReadTool,
+	type HashlineReadOperations,
+	type HashlineReadToolDetails,
+	type HashlineReadToolInput,
+	type HashlineReadToolOptions,
+	hashlineReadTool,
+} from "./hashline-read.js";
+export {
+	type Anchor,
+	applyHashlineEdits,
+	computeLineHash,
+	formatHashLines,
+	formatLineTag,
+	type HashlineEdit,
+	HashlineMismatchError,
+	hashlineParseText,
+	type HashMismatch,
+	parseTag,
+	stripNewLinePrefixes,
+	validateLineRef,
+} from "./hashline.js";
+export {
 	createLspTool,
 	type LspToolDetails,
 	lspSchema,
@@ -78,6 +109,8 @@ import { type BashToolOptions, bashTool, createBashTool } from "./bash.js";
 import { createEditTool, editTool } from "./edit.js";
 import { createFindTool, findTool } from "./find.js";
 import { createGrepTool, grepTool } from "./grep.js";
+import { createHashlineEditTool, hashlineEditTool } from "./hashline-edit.js";
+import { createHashlineReadTool, hashlineReadTool } from "./hashline-read.js";
 import { createLsTool, lsTool } from "./ls.js";
 import { createReadTool, type ReadToolOptions, readTool } from "./read.js";
 import { createWriteTool, writeTool } from "./write.js";
@@ -102,7 +135,12 @@ export const allTools = {
 	find: findTool,
 	ls: lsTool,
 	lsp: lspTool,
+	hashline_edit: hashlineEditTool,
+	hashline_read: hashlineReadTool,
 };
+
+// Hashline-mode coding tools — read with hash anchors, edit with hash references
+export const hashlineCodingTools: Tool[] = [hashlineReadTool, bashTool, hashlineEditTool, writeTool];
 
 export type ToolName = keyof typeof allTools;
 
@@ -145,5 +183,20 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		find: createFindTool(cwd),
 		ls: createLsTool(cwd),
 		lsp: createLspTool(cwd),
+		hashline_edit: createHashlineEditTool(cwd),
+		hashline_read: createHashlineReadTool(cwd, options?.read),
 	};
+}
+
+/**
+ * Create hashline-mode coding tools configured for a specific working directory.
+ * Uses hashline read (LINE#ID prefixed output) and hashline edit (hash-anchor based edits).
+ */
+export function createHashlineCodingTools(cwd: string, options?: ToolsOptions): Tool[] {
+	return [
+		createHashlineReadTool(cwd, options?.read),
+		createBashTool(cwd, options?.bash),
+		createHashlineEditTool(cwd),
+		createWriteTool(cwd),
+	];
 }
