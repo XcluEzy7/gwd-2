@@ -436,7 +436,7 @@ function _parsePlanImpl(content: string): SlicePlan {
     let currentTask: TaskPlanEntry | null = null;
 
     for (const line of taskLines) {
-      const cbMatch = line.match(/^-\s+\[([ xX])\]\s+\*\*(\w+):\s+(.+?)\*\*\s*(.*)/);
+      const cbMatch = line.match(/^-\s+\[([ xX])\]\s+\*\*([\w.]+):\s+(.+?)\*\*\s*(.*)/);
       if (cbMatch) {
         if (currentTask) tasks.push(currentTask);
 
