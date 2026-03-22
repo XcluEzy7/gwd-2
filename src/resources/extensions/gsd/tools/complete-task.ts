@@ -168,6 +168,8 @@ export async function handleCompleteTask(
   });
 
   // ── Filesystem operations (outside transaction) ─────────────────────────
+  // If disk render fails, roll back the DB status so deriveState() and
+  // verifyExpectedArtifact() stay consistent (both say "not done").
 
   // Render summary markdown
   const summaryMd = renderSummaryMarkdown(params);
@@ -185,16 +187,35 @@ export async function handleCompleteTask(
     summaryPath = join(manualTasksDir, `${params.taskId}-SUMMARY.md`);
   }
 
-  await saveFile(summaryPath, summaryMd);
+  try {
+    await saveFile(summaryPath, summaryMd);
 
-  // Toggle plan checkbox via renderer module
-  const planPath = resolveSliceFile(basePath, params.milestoneId, params.sliceId, "PLAN");
-  if (planPath) {
-    await renderPlanCheckboxes(basePath, params.milestoneId, params.sliceId);
-  } else {
+    // Toggle plan checkbox via renderer module
+    const planPath = resolveSliceFile(basePath, params.milestoneId, params.sliceId, "PLAN");
+    if (planPath) {
+      await renderPlanCheckboxes(basePath, params.milestoneId, params.sliceId);
+    } else {
+      process.stderr.write(
+        `gsd-db: complete_task — could not find plan file for ${params.sliceId}/${params.milestoneId}, skipping checkbox toggle\n`,
+      );
+    }
+  } catch (renderErr) {
+    // Disk render failed — roll back DB status so state stays consistent
     process.stderr.write(
-      `gsd-db: complete_task — could not find plan file for ${params.sliceId}/${params.milestoneId}, skipping checkbox toggle\n`,
+      `gsd-db: complete_task — disk render failed, rolling back DB status: ${(renderErr as Error).message}\n`,
     );
+    const rollbackAdapter = _getAdapter();
+    if (rollbackAdapter) {
+      rollbackAdapter.prepare(
+        `UPDATE tasks SET status = 'pending' WHERE milestone_id = :mid AND slice_id = :sid AND id = :tid`,
+      ).run({
+        ":mid": params.milestoneId,
+        ":sid": params.sliceId,
+        ":tid": params.taskId,
+      });
+    }
+    invalidateStateCache();
+    return { error: `disk render failed: ${(renderErr as Error).message}` };
   }
 
   // Store rendered markdown in DB for D004 recovery

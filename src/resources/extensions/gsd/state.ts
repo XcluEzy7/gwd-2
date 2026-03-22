@@ -714,12 +714,9 @@ export async function _deriveStateImpl(basePath: string): Promise<GSDState> {
   const fileContentCache = new Map<string, string>();
   const gsdDir = gsdRoot(basePath);
 
-  // NOTE: We intentionally do NOT load from the SQLite DB here (#759).
-  // The DB's artifacts table is populated once during migrateFromMarkdown
-  // and is never updated when files change on disk (e.g. roadmap [x] updates,
-  // plan checkbox changes). Using stale DB content causes deriveState to
-  // return incorrect phase/slice state, leading to infinite skip loops.
-  // The native Rust batch parser is fast enough for state derivation.
+  // Filesystem fallback: used when deriveStateFromDb() is not available
+  // (pre-migration projects). The DB-backed path is preferred when available
+  // — see deriveStateFromDb() above.
   const batchFiles = nativeBatchParseGsdFiles(gsdDir);
   if (batchFiles) {
     for (const f of batchFiles) {

@@ -72,13 +72,6 @@ export type DoctorIssueCode =
   | "env_test";
 
 /**
- * Issue codes that represent expected completion-transition states.
- * Previously contained reconciliation codes that are now removed.
- * Kept as an empty set because auto-post-unit.ts and tests import it.
- */
-export const COMPLETION_TRANSITION_CODES = new Set<DoctorIssueCode>();
-
-/**
  * Issue codes that represent global or completion-critical state.
  * These must NOT be auto-fixed when fixLevel is "task" — automated
  * post-task health checks must never delete external project state directories

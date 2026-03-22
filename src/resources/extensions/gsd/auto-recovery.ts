@@ -669,11 +669,10 @@ export function buildLoopRemediationSteps(
   switch (unitType) {
     case "execute-task": {
       if (!mid || !sid || !tid) break;
-      const summaryRel = relTaskFile(base, mid, sid, tid, "SUMMARY");
       return [
-        `   1. Write ${summaryRel} (even a partial summary is sufficient to unblock the pipeline)`,
-        `   2. Run \`gsd undo-task ${tid}\` to reset state if needed, or \`gsd doctor\` to reconcile`,
-        `   3. Resume auto-mode — it will pick up from the next task`,
+        `   1. Run \`gsd undo-task ${tid}\` to reset the task state`,
+        `   2. Resume auto-mode — it will re-execute the task`,
+        `   3. If the task keeps failing, run \`gsd recover\` to rebuild DB state from disk`,
       ].join("\n");
     }
     case "plan-slice":
@@ -685,16 +684,16 @@ export function buildLoopRemediationSteps(
           : relSliceFile(base, mid, sid, "RESEARCH");
       return [
         `   1. Write ${artifactRel} manually (or with the LLM in interactive mode)`,
-        `   2. Run \`gsd doctor\` to reconcile .gsd/ state`,
+        `   2. Run \`gsd recover\` to rebuild DB state from disk`,
         `   3. Resume auto-mode`,
       ].join("\n");
     }
     case "complete-slice": {
       if (!mid || !sid) break;
       return [
-        `   1. Write the slice summary and UAT file for ${sid} in ${relSlicePath(base, mid, sid)}`,
-        `   2. Run \`gsd reset-slice ${sid}\` to reset state if needed, or \`gsd doctor\` to reconcile`,
-        `   3. Resume auto-mode`,
+        `   1. Run \`gsd reset-slice ${sid}\` to reset the slice and all its tasks`,
+        `   2. Resume auto-mode — it will re-execute incomplete tasks and re-complete the slice`,
+        `   3. If the slice keeps failing, run \`gsd recover\` to rebuild DB state from disk`,
       ].join("\n");
     }
     case "validate-milestone": {
@@ -702,7 +701,7 @@ export function buildLoopRemediationSteps(
       const artifactRel = relMilestoneFile(base, mid, "VALIDATION");
       return [
         `   1. Write ${artifactRel} with verdict: pass`,
-        `   2. Run \`gsd doctor\``,
+        `   2. Run \`gsd recover\` to rebuild DB state from disk`,
         `   3. Resume auto-mode`,
       ].join("\n");
     }

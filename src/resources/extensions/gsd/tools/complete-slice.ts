@@ -222,6 +222,8 @@ export async function handleCompleteSlice(
   });
 
   // ── Filesystem operations (outside transaction) ─────────────────────────
+  // If disk render fails, roll back the DB status so deriveState() and
+  // verifyExpectedArtifact() stay consistent (both say "not done").
 
   // Render summary markdown
   const summaryMd = renderSliceSummaryMarkdown(params);
@@ -239,19 +241,36 @@ export async function handleCompleteSlice(
     summaryPath = join(manualSliceDir, `${params.sliceId}-SUMMARY.md`);
   }
 
-  await saveFile(summaryPath, summaryMd);
-
-  // Render and write UAT to disk
   const uatMd = renderUatMarkdown(params);
   const uatPath = summaryPath.replace(/-SUMMARY\.md$/, "-UAT.md");
-  await saveFile(uatPath, uatMd);
 
-  // Toggle roadmap checkbox via renderer module
-  const roadmapToggled = await renderRoadmapCheckboxes(basePath, params.milestoneId);
-  if (!roadmapToggled) {
+  try {
+    await saveFile(summaryPath, summaryMd);
+    await saveFile(uatPath, uatMd);
+
+    // Toggle roadmap checkbox via renderer module
+    const roadmapToggled = await renderRoadmapCheckboxes(basePath, params.milestoneId);
+    if (!roadmapToggled) {
+      process.stderr.write(
+        `gsd-db: complete_slice — could not find roadmap for ${params.milestoneId}, skipping checkbox toggle\n`,
+      );
+    }
+  } catch (renderErr) {
+    // Disk render failed — roll back DB status so state stays consistent
     process.stderr.write(
-      `gsd-db: complete_slice — could not find roadmap for ${params.milestoneId}, skipping checkbox toggle\n`,
+      `gsd-db: complete_slice — disk render failed, rolling back DB status: ${(renderErr as Error).message}\n`,
     );
+    const rollbackAdapter = _getAdapter();
+    if (rollbackAdapter) {
+      rollbackAdapter.prepare(
+        `UPDATE slices SET status = 'pending' WHERE milestone_id = :mid AND id = :sid`,
+      ).run({
+        ":mid": params.milestoneId,
+        ":sid": params.sliceId,
+      });
+    }
+    invalidateStateCache();
+    return { error: `disk render failed: ${(renderErr as Error).message}` };
   }
 
   // Store rendered markdown in DB for D004 recovery

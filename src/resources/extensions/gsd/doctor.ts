@@ -8,7 +8,7 @@ import { invalidateAllCaches } from "./cache.js";
 import { loadEffectiveGSDPreferences, type GSDPreferences } from "./preferences.js";
 
 import type { DoctorIssue, DoctorIssueCode, DoctorReport } from "./doctor-types.js";
-import { COMPLETION_TRANSITION_CODES, GLOBAL_STATE_CODES } from "./doctor-types.js";
+import { GLOBAL_STATE_CODES } from "./doctor-types.js";
 import type { RoadmapSliceEntry } from "./types.js";
 import { checkGitHealth, checkRuntimeHealth, checkGlobalHealth } from "./doctor-checks.js";
 import { checkEnvironmentHealth } from "./doctor-environment.js";
@@ -329,7 +329,6 @@ export async function runGSDDoctor(basePath: string, options?: { fix?: boolean; 
   /** Whether a given issue code should be auto-fixed at the current fixLevel. */
   const shouldFix = (code: DoctorIssueCode): boolean => {
     if (!fix || dryRun) return false;
-    if (fixLevel === "task" && COMPLETION_TRANSITION_CODES.has(code)) return false;
     if (fixLevel === "task" && GLOBAL_STATE_CODES.has(code)) return false;
     return true;
   };

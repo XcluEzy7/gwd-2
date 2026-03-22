@@ -1,18 +1,16 @@
 /**
  * Regression test for #1808: Completion-transition doctor fix deferral.
  *
- * With reconciliation codes removed (S06), COMPLETION_TRANSITION_CODES
- * is now an empty set. These tests verify the set is empty and that
- * no reconciliation issue codes appear in doctor reports.
+ * Reconciliation codes are removed — doctor no longer creates summary/UAT
+ * stubs or reports checkbox/file mismatch issues.
  */
 
-import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { runGSDDoctor } from "../doctor.ts";
-import { COMPLETION_TRANSITION_CODES } from "../doctor-types.ts";
 
 function makeTmp(name: string): string {
   const dir = join(tmpdir(), `doctor-deferral-${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -57,10 +55,6 @@ completed_at: 2026-01-01
 Done.
 `);
 }
-
-test("COMPLETION_TRANSITION_CODES is empty (reconciliation codes removed)", () => {
-  assert.equal(COMPLETION_TRANSITION_CODES.size, 0, "set should be empty after reconciliation removal");
-});
 
 test("doctor does not report any reconciliation issue codes", async () => {
   const tmp = makeTmp("no-reconciliation");

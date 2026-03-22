@@ -591,7 +591,23 @@ export function migrateHierarchyToDb(basePath: string): {
 
       for (const taskEntry of plan.tasks) {
         // Per K002: use 'complete' not 'done'
-        const taskStatus = taskEntry.done ? 'complete' : 'pending';
+        let taskStatus: string = taskEntry.done ? 'complete' : 'pending';
+
+        // Pre-migration consistency: if task is marked done in the plan but has
+        // no summary file on disk, import as 'pending' so it gets re-executed
+        // rather than silently importing bad state as the new DB authority.
+        if (taskStatus === 'complete') {
+          const tDir = resolveTasksDir(basePath, milestoneId, sliceEntry.id);
+          if (tDir) {
+            const summaryFile = join(tDir, `${taskEntry.id}-SUMMARY.md`);
+            if (!existsSync(summaryFile)) {
+              taskStatus = 'pending';
+              process.stderr.write(
+                `gsd-migrate: ${milestoneId}/${sliceEntry.id}/${taskEntry.id} marked done but missing summary — importing as pending\n`,
+              );
+            }
+          }
+        }
 
         insertTask({
           id: taskEntry.id,
@@ -601,6 +617,33 @@ export function migrateHierarchyToDb(basePath: string): {
           status: taskStatus,
         });
         counts.tasks++;
+      }
+
+      // Pre-migration consistency: if all tasks are done but the roadmap
+      // checkbox for this slice is unchecked, trust the task-level state
+      // and mark the slice as complete. This handles the common
+      // "all_tasks_done_roadmap_not_checked" inconsistency that the old
+      // doctor would have auto-fixed.
+      if (!sliceEntry.done) {
+        const allTasksDone = plan.tasks.length > 0 && plan.tasks.every(t => {
+          // Check actual imported status (may have been downgraded above)
+          const tDir = resolveTasksDir(basePath, milestoneId, sliceEntry.id);
+          if (!tDir) return t.done;
+          const summaryFile = join(tDir, `${t.id}-SUMMARY.md`);
+          return t.done && existsSync(summaryFile);
+        });
+        if (allTasksDone) {
+          // Update the slice status in-place via DB
+          const adapter = _getAdapter();
+          if (adapter) {
+            adapter.prepare(
+              `UPDATE slices SET status = 'complete' WHERE id = :sid AND milestone_id = :mid`,
+            ).run({ ':sid': sliceEntry.id, ':mid': milestoneId });
+            process.stderr.write(
+              `gsd-migrate: ${milestoneId}/${sliceEntry.id} all tasks complete — upgrading slice to complete\n`,
+            );
+          }
+        }
       }
     }
   }

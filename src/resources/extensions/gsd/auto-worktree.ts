@@ -305,6 +305,22 @@ export function syncWorktreeStateBack(
 
   if (!existsSync(wtGsd) || !existsSync(mainGsd)) return { synced };
 
+  // ── 0. Pre-upgrade worktree DB reconciliation ────────────────────────
+  // If the worktree has its own gsd.db (copied before the WAL transition),
+  // reconcile its hierarchy data into the project root DB before syncing
+  // files. This handles in-flight worktrees that were created before the
+  // upgrade to shared WAL mode.
+  const wtLocalDb = join(wtGsd, "gsd.db");
+  const mainDb = join(mainGsd, "gsd.db");
+  if (existsSync(wtLocalDb) && existsSync(mainDb)) {
+    try {
+      reconcileWorktreeDb(mainDb, wtLocalDb);
+      synced.push("gsd.db (pre-upgrade reconcile)");
+    } catch {
+      // Non-fatal — file sync below is the fallback
+    }
+  }
+
   // ── 1. Sync root-level .gsd/ files back ──────────────────────────────
   // The worktree is authoritative — complete-milestone updates REQUIREMENTS,
   // PROJECT, etc. These must overwrite main's copies so they survive teardown.
