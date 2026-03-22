@@ -31,6 +31,8 @@ export interface PausedSessionMetadata {
   sessionFile?: string | null;
   unitType?: string;
   unitId?: string;
+  activeEngineId?: string;
+  activeRunDir?: string | null;
 }
 
 export interface InterruptedSessionAssessment {
