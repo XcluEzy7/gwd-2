@@ -778,8 +778,21 @@ export function openDatabase(path: string): boolean {
   try {
     initSchema(adapter, fileBacked);
   } catch (err) {
-    try { adapter.close(); } catch { /* swallow */ }
-    throw err;
+    // Corrupt freelist: DDL fails with "malformed" but VACUUM can rebuild.
+    // Attempt VACUUM recovery before giving up (see #2519).
+    if (fileBacked && err instanceof Error && err.message?.includes("malformed")) {
+      try {
+        adapter.exec("VACUUM");
+        initSchema(adapter, fileBacked);
+        process.stderr.write("gsd-db: recovered corrupt database via VACUUM\n");
+      } catch (retryErr) {
+        try { adapter.close(); } catch { /* swallow */ }
+        throw retryErr;
+      }
+    } else {
+      try { adapter.close(); } catch { /* swallow */ }
+      throw err;
+    }
   }
 
   currentDb = adapter;
@@ -1124,10 +1137,11 @@ export function insertMilestone(m: {
   });
 }
 
-export function upsertMilestonePlanning(milestoneId: string, planning: Partial<MilestonePlanningRecord>): void {
+export function upsertMilestonePlanning(milestoneId: string, planning: Partial<MilestonePlanningRecord>, title?: string): void {
   if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
   currentDb.prepare(
     `UPDATE milestones SET
+      title = COALESCE(:title, title),
       vision = COALESCE(:vision, vision),
       success_criteria = COALESCE(:success_criteria, success_criteria),
       key_risks = COALESCE(:key_risks, key_risks),
@@ -1142,6 +1156,7 @@ export function upsertMilestonePlanning(milestoneId: string, planning: Partial<M
      WHERE id = :id`,
   ).run({
     ":id": milestoneId,
+    ":title": title ?? null,
     ":vision": planning.vision ?? null,
     ":success_criteria": planning.successCriteria ? JSON.stringify(planning.successCriteria) : null,
     ":key_risks": planning.keyRisks ? JSON.stringify(planning.keyRisks) : null,
@@ -1517,6 +1532,26 @@ export function insertVerificationEvidence(e: {
     ":duration_ms": e.durationMs,
     ":created_at": new Date().toISOString(),
   });
+}
+
+export interface VerificationEvidenceRow {
+  id: number;
+  task_id: string;
+  slice_id: string;
+  milestone_id: string;
+  command: string;
+  exit_code: number;
+  verdict: string;
+  duration_ms: number;
+  created_at: string;
+}
+
+export function getVerificationEvidence(milestoneId: string, sliceId: string, taskId: string): VerificationEvidenceRow[] {
+  if (!currentDb) return [];
+  const rows = currentDb.prepare(
+    "SELECT * FROM verification_evidence WHERE milestone_id = :mid AND slice_id = :sid AND task_id = :tid ORDER BY id",
+  ).all({ ":mid": milestoneId, ":sid": sliceId, ":tid": taskId });
+  return rows as unknown as VerificationEvidenceRow[];
 }
 
 export interface MilestoneRow {
