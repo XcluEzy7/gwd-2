@@ -2,7 +2,7 @@
 
 # GSD 2
 
-**The evolution of [Get Shit Done](https://github.com/gsd-build/get-shit-done) — now a real coding agent.**
+**The evolution of [Get **** Done](https://github.com/gsd-build/get-shit-done) — now a real coding agent.**
 
 [![npm version](https://img.shields.io/npm/v/gsd-pi?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/gsd-pi)
 [![npm downloads](https://img.shields.io/npm/dm/gsd-pi?style=for-the-badge&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/gsd-pi)
