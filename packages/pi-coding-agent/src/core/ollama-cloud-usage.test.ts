@@ -12,7 +12,7 @@ const USAGE_KEY = "ollama-cloud-usage";
 describe("OllamaCloudUsage", () => {
 	beforeEach(() => {
 		// Reset global state before each test
-		delete globalThis[USAGE_KEY];
+		delete (globalThis as Record<string, unknown>)[USAGE_KEY];
 	});
 
 	describe("getOllamaCloudUsage", () => {
@@ -60,7 +60,7 @@ describe("OllamaCloudUsage", () => {
 			// Manually set quota values
 			const usage = getOllamaCloudUsage();
 			Object.assign(usage, { hourlyRemaining: 100, weeklyRemaining: 1000 });
-			globalThis[USAGE_KEY] = usage;
+			(globalThis as Record<string, unknown>)[USAGE_KEY] = usage;
 
 			updateOllamaCloudUsage(50, 25);
 			const updated = getOllamaCloudUsage();

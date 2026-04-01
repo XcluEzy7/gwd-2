@@ -38,7 +38,7 @@ const USAGE_KEY = "ollama-cloud-usage";
  */
 export function getOllamaCloudUsage(): OllamaCloudUsage {
 	// Return cached usage if available
-	const cached = globalThis[USAGE_KEY] as OllamaCloudUsage | undefined;
+	const cached = (globalThis as Record<string, unknown>)[USAGE_KEY] as OllamaCloudUsage | undefined;
 	if (cached) return cached;
 
 	// Initialize default
@@ -49,7 +49,7 @@ export function getOllamaCloudUsage(): OllamaCloudUsage {
 		hourlyRemaining: null,
 		weeklyRemaining: null,
 	};
-	globalThis[USAGE_KEY] = initial;
+	(globalThis as Record<string, unknown>)[USAGE_KEY] = initial;
 	return initial;
 }
 
@@ -69,7 +69,7 @@ export function updateOllamaCloudUsage(
 		hourlyRemaining: current.hourlyRemaining,
 		weeklyRemaining: current.weeklyRemaining,
 	};
-	globalThis[USAGE_KEY] = updated;
+	(globalThis as Record<string, unknown>)[USAGE_KEY] = updated;
 	return updated;
 }
 

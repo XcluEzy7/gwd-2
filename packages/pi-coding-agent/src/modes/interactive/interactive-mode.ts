@@ -24,6 +24,7 @@ import {
 	type Component,
 	Container,
 	fuzzyFilter,
+	getEditorKeybindings,
 	Loader,
 	Markdown,
 	matchesKey,
@@ -3496,16 +3497,19 @@ export class InteractiveMode {
 
 			const kb = getEditorKeybindings();
 
-			const handleInput = (data: string) => {
+			const handleInput = (data: string): { consume: true } | undefined => {
 				if (kb.matches(data, "selectUp")) {
 					selectedIndex = Math.max(0, selectedIndex - 1);
 					updateList(listContainer);
 					this.ui.requestRender();
+					return { consume: true };
 				} else if (kb.matches(data, "selectDown")) {
 					selectedIndex = Math.min(options.length - 1, selectedIndex + 1);
 					updateList(listContainer);
 					this.ui.requestRender();
+					return { consume: true };
 				} else if (kb.matches(data, "selectConfirm")) {
+					unsubscribe();
 					done();
 					const selected = options[selectedIndex]!;
 					if (selected.value === "signin") {
@@ -3513,13 +3517,18 @@ export class InteractiveMode {
 					} else {
 						this.showApiKeyLoginDialog(providerId, "Ollama Cloud").catch(() => {});
 					}
+					return { consume: true };
 				} else if (kb.matches(data, "selectCancel")) {
+					unsubscribe();
 					done();
 					this.ui.requestRender();
+					return { consume: true };
 				}
+				return undefined;
 			};
 
-			this.ui.setInputHandler(handleInput);
+			const unsubscribe = this.ui.addInputListener(handleInput);
+
 			return { component: container, focus: container };
 		});
 	}

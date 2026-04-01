@@ -1,6 +1,47 @@
+# ── IDE/Editor ──
+.idea/
+.vscode/
+*.code-workspace
 
-# ── Compiled test output ──
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ── Dependencies ──
+node_modules/
+
+# ── Build outputs ──
+dist/
+build/
 dist-test/
+target/
+!/pkg/dist/modes/
+!/pkg/dist/core/export-html/
+packages/*/dist/
+
+# ── TypeScript ──
+*.tsbuildinfo
+*.tgz
+
+# ── Environment & Secrets ──
+.env
+.env.*
+!.env.example
+
+# ── Python ──
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ── Node/JS ──
+.next/
+coverage/
+.cache/
+tmp/
+*.log
 
 # ── Compiled output in src/ (should only contain .ts source) ──
 src/**/*.js
@@ -9,42 +50,6 @@ src/**/*.d.ts
 src/**/*.d.ts.map
 !src/**/*.test.js
 
-# ── GSD project state (development-only, lives in worktree branches) ──
-package-lock.json
-.claude/
-RELEASE-GUIDE.md
-*.tgz
-*.tsbuildinfo
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-*~
-.idea/
-.vscode/
-*.code-workspace
-.env
-.env.*
-!.env.example
-node_modules/
-.next/
-/dist/
-!/pkg/dist/modes/
-!/pkg/dist/core/export-html/
-build/
-__pycache__/
-*.pyc
-.venv/
-venv/
-target/
-vendor/
-!packages/pi-coding-agent/src/core/export-html/vendor/
-!pkg/dist/core/export-html/vendor/
-*.log
-coverage/
-.cache/
-tmp/
-
 # ── Workspace packages ──
 packages/*/dist/
 packages/*/node_modules/
@@ -52,27 +57,40 @@ packages/*/node_modules/
 # ── Scratch/WIP files ──
 preflight-script.ts
 
-# ── GSD baseline (auto-generated) ──
-dist/
-!/pkg/dist/modes/
-!/pkg/dist/core/export-html/
-.bg_shell
-.gsd*.tgz
-.artifacts/
-AGENTS.md
-.bg-shell/
-TODOS.md
-.planning/
-.audits/
-docs/coherence-audit/
-.plans/
-
-# ── GSD project state (per-worktree, never committed) ──
-.gsd/
-
 # ── Stale lock files (npm is canonical) ──
+package-lock.json
 pnpm-lock.yaml
 bun.lock
 
+# ── Vendor directories ──
+vendor/
+!packages/pi-coding-agent/src/core/export-html/vendor/
+!pkg/dist/core/export-html/vendor/
+
+# ── Pi/GSD tooling (development-only) ──
+.claude/
+.pi-lens/
+.plans/
+.planning/
+.gsd/
+.gsd*.tgz
+.artifacts/
+.bg_shell
+.bg-shell/
+AGENTS.md
+RELEASE-GUIDE.md
+TODOS.md
+.audits/
+docs/coherence-audit/
+
+# ── Studio/Electron (if used) ──
+studio/out/
+studio/release/
+studio/dist/
+*.dmg
+*.AppImage
+*.snap
+
 # ── GSD baseline (auto-generated) ──
 .gsd
+.gsd-id

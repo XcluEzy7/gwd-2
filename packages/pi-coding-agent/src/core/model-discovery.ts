@@ -218,7 +218,7 @@ class OllamaCloudDiscoveryAdapter implements ProviderDiscoveryAdapter {
 		// Handle both OpenAI-style {data:[...]} and native {models:[...]}
 		const list = data.data ?? data.models ?? [];
 		return list.map((m) => ({
-			id: m.id ?? m.name,
+			id: (m.id ?? m.name) as string,
 			name: m.name ?? m.id ?? m.name,
 			input: ["text" as const, "image" as const],
 		}));
