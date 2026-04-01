@@ -340,6 +340,9 @@ async function runLlmStep(p: ClackModule, pc: PicoModule, authStorage: AuthStora
     if (provider === 'ollama') {
       return await runOllamaLocalFlow(p, pc, authStorage)
     }
+    if (provider === 'ollama-cloud') {
+      return await runOllamaCloudFlow(p, pc, authStorage)
+    }
     const label = provider === 'anthropic' ? 'Anthropic'
       : provider === 'openai' ? 'OpenAI'
       : OTHER_PROVIDERS.find(op => op.value === provider)?.label ?? String(provider)
@@ -495,6 +498,75 @@ async function runOllamaLocalFlow(
   authStorage.set('ollama', { type: 'api_key', key: 'ollama' })
   p.log.success(`${pc.green('Ollama (Local)')} saved — models will appear when Ollama is running`)
   return true
+}
+
+// ─── Ollama Cloud Flow ──────────────────────────────────────────────────────
+
+async function runOllamaCloudFlow(
+  p: ClackModule,
+  pc: PicoModule,
+  authStorage: AuthStorage,
+): Promise<boolean> {
+  // Offer two auth methods: ollama signin (OAuth-like) or API key
+  const method = await p.select({
+    message: 'How do you want to sign in to Ollama Cloud?',
+    options: [
+      { value: 'signin', label: 'Sign in with Ollama', hint: 'opens browser, uses local daemon' },
+      { value: 'api-key', label: 'Paste API key', hint: 'from ollama.com/settings/api-keys' },
+      { value: 'skip', label: 'Skip for now', hint: 'use /login inside GSD later' },
+    ],
+  })
+
+  if (p.isCancel(method) || method === 'skip') return false
+
+  if (method === 'signin') {
+    // Run `ollama signin` which opens browser and stores credentials locally
+    const s = p.spinner()
+    s.start('Running ollama signin...')
+
+    return await new Promise<boolean>((resolve) => {
+      const proc = execFile('ollama', ['signin'], { timeout: 120_000 }, (err, stdout, stderr) => {
+        s.stop()
+        if (err) {
+          p.log.warn(`ollama signin failed: ${err.message}`)
+          p.log.info(pc.dim('Make sure Ollama is installed from https://ollama.com'))
+          resolve(false)
+          return
+        }
+        // Store placeholder credential so the provider is recognized
+        authStorage.set('ollama-cloud', { type: 'api_key', key: 'ollama-signin' })
+        p.log.success(`${pc.green('Ollama Cloud')} configured via ollama signin`)
+        p.log.info(pc.dim('Cloud models are now available. Use /model to select one.'))
+        resolve(true)
+      })
+
+      // Show stdout/stderr as progress
+      if (proc.stdout) {
+        proc.stdout.on('data', (chunk) => {
+          const msg = chunk.toString().trim()
+          if (msg) s.start(msg)
+        })
+      }
+    })
+  }
+
+  if (method === 'api-key') {
+    const key = await p.password({
+      message: 'Paste your Ollama Cloud API key:',
+      mask: '●',
+    })
+
+    if (p.isCancel(key) || !key) return false
+    const trimmed = (key as string).trim()
+    if (!trimmed) return false
+
+    authStorage.set('ollama-cloud', { type: 'api_key', key: trimmed })
+    p.log.success(`API key saved for ${pc.green('Ollama Cloud')}`)
+    p.log.info(pc.dim('Models are discovered automatically from ollama.com/api/v1/models'))
+    return true
+  }
+
+  return false
 }
 
 // ─── Custom OpenAI-compatible Flow ────────────────────────────────────────────

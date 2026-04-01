@@ -798,7 +798,11 @@ export class ModelRegistry {
 				const apiKey = await this.authStorage.getApiKey(providerName);
 				if (!apiKey && !this.isProviderRequestReady(providerName)) continue;
 
-				const models = await adapter.fetchModels(apiKey ?? "", undefined);
+				// Resolve baseUrl from registered provider config (for custom providers like ollama-cloud)
+				const config = this.registeredProviders.get(providerName);
+				const baseUrl = config?.baseUrl ?? undefined;
+
+				const models = await adapter.fetchModels(apiKey ?? "", baseUrl);
 				this.discoveryCache.set(providerName, models);
 				results.push({
 					provider: providerName,

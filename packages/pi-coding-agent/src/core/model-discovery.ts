@@ -29,6 +29,7 @@ export interface ProviderDiscoveryAdapter {
 /** Per-provider TTLs in milliseconds */
 export const DISCOVERY_TTLS: Record<string, number> = {
 	ollama: 5 * 60 * 1000, // 5 minutes (local, models change often)
+	"ollama-cloud": 60 * 60 * 1000, // 1 hour
 	openai: 60 * 60 * 1000, // 1 hour
 	google: 60 * 60 * 1000, // 1 hour
 	openrouter: 60 * 60 * 1000, // 1 hour
@@ -189,6 +190,41 @@ class GoogleDiscoveryAdapter implements ProviderDiscoveryAdapter {
 	}
 }
 
+// ─── Ollama Cloud Adapter ───────────────────────────────────────────────────
+
+const OLLAMA_CLOUD_BASE_URL = "https://ollama.com/api";
+
+class OllamaCloudDiscoveryAdapter implements ProviderDiscoveryAdapter {
+	provider = "ollama-cloud";
+	supportsDiscovery = true;
+
+	async fetchModels(apiKey: string, baseUrl?: string): Promise<DiscoveredModel[]> {
+		const url = `${baseUrl ?? OLLAMA_CLOUD_BASE_URL}/v1/models`;
+		const headers: Record<string, string> = {};
+		if (apiKey && apiKey !== "ollama" && apiKey !== "local-no-key-needed") {
+			headers.Authorization = `Bearer ${apiKey}`;
+		}
+		const response = await fetchWithTimeout(url, { headers });
+
+		if (!response.ok) {
+			throw new Error(`Ollama Cloud models API returned ${response.status}: ${response.statusText}`);
+		}
+
+		const data = (await response.json()) as {
+			data?: Array<{ id: string; name?: string }>;
+			models?: Array<{ name: string; id?: string }>;
+		};
+
+		// Handle both OpenAI-style {data:[...]} and native {models:[...]}
+		const list = data.data ?? data.models ?? [];
+		return list.map((m) => ({
+			id: m.id ?? m.name,
+			name: m.name ?? m.id ?? m.name,
+			input: ["text" as const, "image" as const],
+		}));
+	}
+}
+
 // ─── Static Adapter (no discovery) ───────────────────────────────────────────
 
 class StaticDiscoveryAdapter implements ProviderDiscoveryAdapter {
@@ -209,6 +245,7 @@ class StaticDiscoveryAdapter implements ProviderDiscoveryAdapter {
 const adapters: Record<string, ProviderDiscoveryAdapter> = {
 	openai: new OpenAIDiscoveryAdapter(),
 	ollama: new OllamaDiscoveryAdapter(),
+	"ollama-cloud": new OllamaCloudDiscoveryAdapter(),
 	openrouter: new OpenRouterDiscoveryAdapter(),
 	google: new GoogleDiscoveryAdapter(),
 	anthropic: new StaticDiscoveryAdapter("anthropic"),

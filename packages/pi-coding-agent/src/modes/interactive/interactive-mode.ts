@@ -79,6 +79,7 @@ import { FooterComponent } from "./components/footer.js";
 import { appKey, appKeyHint, editorKey, formatKeyForDisplay, keyHint, rawKeyHint } from "./components/keybinding-hints.js";
 import { LoginDialogComponent } from "./components/login-dialog.js";
 import { ModelSelectorComponent } from "./components/model-selector.js";
+import { AuthProviderSelectorComponent, type AuthProviderOption } from "./components/auth-provider-selector.js";
 import { OAuthSelectorComponent } from "./components/oauth-selector.js";
 import { ProviderManagerComponent } from "./components/provider-manager.js";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.js";
@@ -3341,64 +3342,71 @@ export class InteractiveMode {
 	}
 
 	private async showOAuthSelector(mode: "login" | "logout"): Promise<void> {
+		// Use unified auth provider selector for both OAuth and API-key providers
+		await this.showAuthProviderSelector(mode);
+	}
+
+	private async showAuthProviderSelector(mode: "login" | "logout"): Promise<void> {
 		if (mode === "logout") {
 			const providers = this.session.modelRegistry.authStorage.list();
-			const loggedInProviders = providers.filter(
-				(p) => this.session.modelRegistry.authStorage.get(p)?.type === "oauth",
-			);
-			if (loggedInProviders.length === 0) {
-				this.showStatus("No OAuth providers logged in. Use /login first.");
+			if (providers.length === 0) {
+				this.showStatus("No providers logged in. Use /login first.");
 				return;
 			}
 		}
 
 		this.showSelector((done) => {
-			const selector = new OAuthSelectorComponent(
+			const selector = new AuthProviderSelectorComponent(
 				mode,
 				this.session.modelRegistry.authStorage,
-				(providerId: string) => {
+				(option: AuthProviderOption) => {
 					done();
 
-					// OAuthSelectorComponent calls this synchronously (no await),
+					// AuthProviderSelectorComponent calls this synchronously (no await),
 					// so we must catch async errors here to prevent unhandled rejections
-					// when the user cancels the login dialog (#821).
+					// when the user cancels the login dialog.
 					const handleAsync = async () => {
 						if (mode === "login") {
-							await this.showLoginDialog(providerId);
-						} else {
-						// Logout flow
-						const providerInfo = this.session.modelRegistry.authStorage
-							.getOAuthProviders()
-							.find((p) => p.id === providerId);
-						const providerName = providerInfo?.name || providerId;
-
-						try {
-							this.session.modelRegistry.authStorage.logout(providerId);
-							this.session.modelRegistry.refresh();
-							await this.updateAvailableProviderCount();
-
-							// Auto-switch model if current model belongs to the logged-out provider
-							const currentModel = this.session.model;
-							if (currentModel?.provider === providerId) {
-								try {
-									const available = this.session.modelRegistry.getAvailable();
-									const fallback = available.find((m) => m.provider !== providerId);
-									if (fallback) {
-										await this.session.setModel(fallback);
-									}
-								} catch {
-									// Model switch failed — user can manually switch via /model
-								}
+							// Route based on provider type
+							if (option.type === "ollama-cloud-signin") {
+								await this.showOllamaCloudLoginDialog(option.id);
+							} else if (option.type === "oauth") {
+								await this.showLoginDialog(option.id);
+							} else {
+								// API-key provider
+								await this.showApiKeyLoginDialog(option.id, option.name);
 							}
+						} else {
+							// Logout flow
+							const providerName = option.name;
 
-							this.showStatus(`Logged out of ${providerName}`);
-						} catch (error: unknown) {
-							this.showError(`Logout failed: ${error instanceof Error ? error.message : String(error)}`);
+							try {
+								this.session.modelRegistry.authStorage.logout(option.id);
+								this.session.modelRegistry.refresh();
+								await this.updateAvailableProviderCount();
+
+								// Auto-switch model if current model belongs to the logged-out provider
+								const currentModel = this.session.model;
+								if (currentModel?.provider === option.id) {
+									try {
+										const available = this.session.modelRegistry.getAvailable();
+										const fallback = available.find((m) => m.provider !== option.id);
+										if (fallback) {
+											await this.session.setModel(fallback);
+										}
+									} catch {
+										// Model switch failed — user can manually switch via /model
+									}
+								}
+
+								this.showStatus(`Logged out of ${providerName}`);
+							} catch (error: unknown) {
+								this.showError(`Logout failed: ${error instanceof Error ? error.message : String(error)}`);
+							}
 						}
-					}
 					};
 					handleAsync().catch(() => {
-						// Swallow — showLoginDialog already handles its own errors.
+						// Swallow — login dialogs already handle their own errors.
 						// This prevents unhandled rejections when login is cancelled.
 					});
 				},
@@ -3409,6 +3417,137 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector };
 		});
+	}
+
+	private async showOllamaCloudLoginDialog(providerId: string): Promise<void> {
+		// Show a selector for auth method: ollama signin or API key
+		this.showSelector((done) => {
+			const options = [
+				{ label: "Sign in with Ollama (browser)", value: "signin" },
+				{ label: "Paste API key", value: "api-key" },
+			];
+			let selectedIndex = 0;
+
+			const updateList = (container: Container) => {
+				container.clear();
+				for (let i = 0; i < options.length; i++) {
+					const opt = options[i]!;
+					const isSelected = i === selectedIndex;
+					const line = isSelected
+						? theme.fg("accent", `→ ${opt.label}`)
+						: `  ${opt.label}`;
+					container.addChild(new TruncatedText(line, 0, 0));
+				}
+			};
+
+			const container = new Container();
+			container.addChild(new DynamicBorder());
+			container.addChild(new Spacer(1));
+			container.addChild(new Text(theme.bold("Sign in to Ollama Cloud:"), 0, 0));
+			container.addChild(new Spacer(1));
+			const listContainer = new Container();
+			container.addChild(listContainer);
+			updateList(listContainer);
+			container.addChild(new Spacer(1));
+			container.addChild(new DynamicBorder());
+
+			const kb = getEditorKeybindings();
+
+			const handleInput = (data: string) => {
+				if (kb.matches(data, "selectUp")) {
+					selectedIndex = Math.max(0, selectedIndex - 1);
+					updateList(listContainer);
+					this.ui.requestRender();
+				} else if (kb.matches(data, "selectDown")) {
+					selectedIndex = Math.min(options.length - 1, selectedIndex + 1);
+					updateList(listContainer);
+					this.ui.requestRender();
+				} else if (kb.matches(data, "selectConfirm")) {
+					done();
+					const selected = options[selectedIndex]!;
+					if (selected.value === "signin") {
+						this.runOllamaSignin().catch(() => {});
+					} else {
+						this.showApiKeyLoginDialog(providerId, "Ollama Cloud").catch(() => {});
+					}
+				} else if (kb.matches(data, "selectCancel")) {
+					done();
+					this.ui.requestRender();
+				}
+			};
+
+			this.ui.setInputHandler(handleInput);
+			return { component: container, focus: container };
+		});
+	}
+
+	private async runOllamaSignin(): Promise<void> {
+		this.showStatus("Running ollama signin...");
+		try {
+			const { execFile } = await import("node:child_process");
+			await new Promise<void>((resolve, reject) => {
+				const proc = execFile("ollama", ["signin"], { timeout: 120_000 }, (err) => {
+					if (err) reject(err);
+					else resolve();
+				});
+				proc.stdout?.on("data", (chunk) => {
+					const msg = chunk.toString().trim();
+					if (msg) this.showStatus(msg);
+				});
+			});
+			// Store placeholder credential
+			this.session.modelRegistry.authStorage.set("ollama-cloud", { type: "api_key", key: "ollama-signin" });
+			this.session.modelRegistry.refresh();
+			await this.updateAvailableProviderCount();
+			this.showStatus("Signed in to Ollama Cloud via ollama signin");
+		} catch (error) {
+			this.showError(`ollama signin failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	private async showApiKeyLoginDialog(providerId: string, providerName: string): Promise<void> {
+		// Reuse LoginDialogComponent to prompt for API key
+		const dialog = new LoginDialogComponent(this.ui, providerId, (_success, _message) => {
+			// Completion handled below
+		});
+
+		this.editorContainer.clear();
+		this.editorContainer.addChild(dialog);
+		this.ui.setFocus(dialog);
+		this.ui.requestRender();
+
+		const restoreEditor = () => {
+			dialog.dispose();
+			this.editorContainer.clear();
+			this.editorContainer.addChild(this.editor);
+			this.ui.setFocus(this.editor);
+			this.ui.requestRender();
+		};
+
+		try {
+			// Show prompt for API key
+			const apiKey = await dialog.showPrompt(
+				`Paste your ${providerName} API key:`,
+				"sk-...",
+			);
+
+			if (!apiKey?.trim()) {
+				this.showStatus("Login cancelled — no API key provided");
+				restoreEditor();
+				return;
+			}
+
+			// Save the API key
+			this.session.modelRegistry.authStorage.set(providerId, { type: "api_key", key: apiKey.trim() });
+			this.session.modelRegistry.refresh();
+			await this.updateAvailableProviderCount();
+
+			this.showStatus(`API key saved for ${providerName}`);
+		} catch (error) {
+			this.showError(`Login failed: ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			restoreEditor();
+		}
 	}
 
 	private async showLoginDialog(providerId: string): Promise<void> {
