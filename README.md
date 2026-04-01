@@ -203,6 +203,35 @@ Full documentation is available at **[gsd.build](https://gsd.build)** (powered b
 - **[Docker Sandbox](./docker/README.md)** — run GSD auto mode in an isolated Docker container
 - **[Migration from v1](./docs/migration.md)** — `.planning` → `.gsd` migration
 
+### Accessing the Web UI Remotely
+
+If you want to reach `gsd --web` from another machine, binding to `0.0.0.0` is only half of it:
+
+- `--host 0.0.0.0` makes the server listen on all interfaces.
+- `--allowed-origins` must include the exact browser origin you will open.
+
+This matters because API requests are protected by an origin check in `web/proxy.ts`. If the browser sends `Origin: http://100.83.160.19:3000` but GSD only expects `http://0.0.0.0:3000`, the request is rejected with `403 Forbidden: origin mismatch`.
+
+#### Tailscale example
+
+```bash
+gsd --web --host 0.0.0.0 --port 3000 --allowed-origins http://100.83.160.19:3000
+```
+
+Then open:
+
+```text
+http://100.83.160.19:3000
+```
+
+If you also want to use the same server locally in a browser on `localhost`, allow both origins:
+
+```bash
+gsd --web --host 0.0.0.0 --port 3000 --allowed-origins http://100.83.160.19:3000,http://localhost:3000
+```
+
+Use the same pattern for LAN IPs, hostnames, ngrok URLs, Tailscale Funnel/Serve, or any other remote entrypoint: the value passed to `--allowed-origins` should match the URL origin your browser actually uses.
+
 ---
 
 ## What Changed From v1
