@@ -1,3 +1,10 @@
 {
-  "type": "module"
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./gsd/index.ts",
+      "./claude-code-cli/index.ts",
+      "./nano-gpt/index.ts"
+    ]
+  }
 }
