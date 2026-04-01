@@ -34,6 +34,12 @@ describe("getDiscoveryAdapter", () => {
 		assert.equal(adapter.supportsDiscovery, true);
 	});
 
+	it("returns an adapter for ollama-cloud", () => {
+		const adapter = getDiscoveryAdapter("ollama-cloud");
+		assert.equal(adapter.provider, "ollama-cloud");
+		assert.equal(adapter.supportsDiscovery, true);
+	});
+
 	it("returns a static adapter for anthropic", () => {
 		const adapter = getDiscoveryAdapter("anthropic");
 		assert.equal(adapter.provider, "anthropic");
@@ -66,6 +72,7 @@ describe("getDiscoverableProviders", () => {
 		const providers = getDiscoverableProviders();
 		assert.ok(providers.includes("openai"));
 		assert.ok(providers.includes("ollama"));
+		assert.ok(providers.includes("ollama-cloud"));
 		assert.ok(providers.includes("openrouter"));
 		assert.ok(providers.includes("google"));
 		assert.ok(!providers.includes("anthropic"));
@@ -86,6 +93,10 @@ describe("getDiscoverableProviders", () => {
 describe("getDefaultTTL", () => {
 	it("returns 5 minutes for ollama", () => {
 		assert.equal(getDefaultTTL("ollama"), 5 * 60 * 1000);
+	});
+
+	it("returns 1 hour for ollama-cloud", () => {
+		assert.equal(getDefaultTTL("ollama-cloud"), 60 * 60 * 1000);
 	});
 
 	it("returns 1 hour for openai", () => {
