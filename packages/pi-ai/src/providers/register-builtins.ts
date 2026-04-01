@@ -9,6 +9,7 @@ import { streamGoogle, streamSimpleGoogle } from "./google.js";
 import { streamGoogleGeminiCli, streamSimpleGoogleGeminiCli } from "./google-gemini-cli.js";
 import { streamGoogleVertex, streamSimpleGoogleVertex } from "./google-vertex.js";
 import { streamMistral, streamSimpleMistral } from "./mistral.js";
+import { streamOllamaChat, streamSimpleOllamaChat } from "./ollama-chat.js";
 import { streamOpenAICodexResponses, streamSimpleOpenAICodexResponses } from "./openai-codex-responses.js";
 import { streamOpenAICompletions, streamSimpleOpenAICompletions } from "./openai-completions.js";
 import { streamOpenAIResponses, streamSimpleOpenAIResponses } from "./openai-responses.js";
@@ -182,6 +183,12 @@ function registerBuiltInApiProviders(): void {
 		api: "bedrock-converse-stream",
 		stream: streamBedrockLazy,
 		streamSimple: streamSimpleBedrockLazy,
+	});
+
+	registerApiProvider({
+		api: "ollama-chat",
+		stream: streamOllamaChat,
+		streamSimple: streamSimpleOllamaChat,
 	});
 }
 

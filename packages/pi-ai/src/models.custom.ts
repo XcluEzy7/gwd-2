@@ -194,4 +194,27 @@ export const CUSTOM_MODELS = {
 			compat: { thinkingFormat: "zai", supportsDeveloperRole: false },
 		} satisfies Model<"openai-completions">,
 	},
+
+	// ─── Ollama Cloud ───────────────────────────────────────────────────────
+	// Native Ollama Cloud via ollama-chat provider (https://ollama.com/api).
+	// Requires OLLAMA_API_KEY or ollama signin. Discovery fetches live models.
+	"ollama-cloud": {
+		"qwen3:32b": {
+			id: "qwen3:32b",
+			name: "Qwen3 32B (Ollama Cloud)",
+			api: "ollama-chat",
+			provider: "ollama-cloud",
+			baseUrl: "https://ollama.com/api",
+			reasoning: false,
+			input: ["text"],
+			cost: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+			contextWindow: 128000,
+			maxTokens: 16384,
+		} satisfies Model<"ollama-chat">,
+	},
 } as const;
