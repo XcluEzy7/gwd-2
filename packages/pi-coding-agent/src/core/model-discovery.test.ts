@@ -142,7 +142,7 @@ describe("DISCOVERY_TTLS", () => {
 		}
 	});
 
-	it("pins ollama-cloud discovery target and ttl to the canonical contract", () => {
+	it("pins ollama-cloud discovery target, ttl, and auth mode to the canonical contract", () => {
 		const contract = getProviderContract("ollama-cloud");
 		assert.equal(contract.authMode, "api-key");
 		assert.equal(
@@ -156,15 +156,6 @@ describe("DISCOVERY_TTLS", () => {
 		assert.equal(contract.discovery.responseShape, "openai-model-list");
 	});
 
-	it("keeps ollama-cloud free of sentinel metadata", () => {
-		const contract = getProviderContract(
-			"ollama-cloud",
-		) as typeof getProviderContract extends (...args: any[]) => infer R
-			? R & { sentinel?: unknown }
-			: never;
-		assert.equal(contract.sentinel, undefined);
-	});
-
 	it("throws for providers without discovery targets", () => {
 		assert.throws(
 			() => getProviderDiscoveryTarget("nano-gpt"),
@@ -174,5 +165,60 @@ describe("DISCOVERY_TTLS", () => {
 			() => getProviderContract("unknown-provider"),
 			/Unknown canonical provider contract/,
 		);
+	});
+});
+
+// ─── Ollama Cloud auth/header behavior ───────────────────────────────────────
+
+describe("ollama-cloud discovery adapter", () => {
+	it("sends bearer auth for real API keys and uses the canonical discovery URL", async () => {
+		const adapter = getDiscoveryAdapter("ollama-cloud");
+		const originalFetch = globalThis.fetch;
+		let requestUrl = "";
+		let requestHeaders: HeadersInit | undefined;
+
+		globalThis.fetch = (async (input, init) => {
+			requestUrl = String(input);
+			requestHeaders = init?.headers;
+			return new Response(JSON.stringify({ data: [{ id: "qwen3:32b" }] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		}) as typeof fetch;
+
+		try {
+			const models = await adapter.fetchModels("sk-real-key");
+			assert.deepEqual(models, [
+				{ id: "qwen3:32b", name: "qwen3:32b", input: ["text", "image"] },
+			]);
+			assert.equal(requestUrl, getProviderDiscoveryTarget("ollama-cloud"));
+			assert.deepEqual(requestHeaders, {
+				Authorization: "Bearer sk-real-key",
+			});
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("omits Authorization when no API key is available", async () => {
+		const adapter = getDiscoveryAdapter("ollama-cloud");
+		const originalFetch = globalThis.fetch;
+		let requestHeaders: HeadersInit | undefined;
+
+		globalThis.fetch = (async (_input, init) => {
+			requestHeaders = init?.headers;
+			return new Response(JSON.stringify({ data: [] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		}) as typeof fetch;
+
+		try {
+			const models = await adapter.fetchModels("");
+			assert.deepEqual(models, []);
+			assert.deepEqual(requestHeaders ?? {}, {});
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 });

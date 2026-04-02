@@ -358,6 +358,12 @@ describe("ModelRegistry authMode — getProviderAuthMode", () => {
 		assert.equal(registry.getProviderAuthMode("anthropic"), "apiKey");
 	});
 
+	it("keeps built-in ollama-cloud on the apiKey auth path", () => {
+		const registry = createRegistry();
+		assert.equal(registry.getProviderAuthMode("ollama-cloud"), "apiKey");
+		assert.equal(getProviderContract("ollama-cloud").authMode, "api-key");
+	});
+
 	it("returns explicit authMode when set", () => {
 		const registry = createRegistry();
 		registry.registerProvider("cli", {
