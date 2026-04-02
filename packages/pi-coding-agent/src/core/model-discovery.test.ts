@@ -4,7 +4,6 @@ import {
 	getProviderContract,
 	getProviderDiscoveryTarget,
 	getProviderDiscoveryTtl,
-	shouldSendAuthorizationHeader,
 } from "../../../../src/resources/extensions/shared/provider-contracts.js";
 import {
 	DISCOVERY_TTLS,
@@ -145,6 +144,7 @@ describe("DISCOVERY_TTLS", () => {
 
 	it("pins ollama-cloud discovery target and ttl to the canonical contract", () => {
 		const contract = getProviderContract("ollama-cloud");
+		assert.equal(contract.authMode, "api-key");
 		assert.equal(
 			getProviderDiscoveryTarget("ollama-cloud"),
 			contract.discovery.targetUrl,
@@ -156,17 +156,13 @@ describe("DISCOVERY_TTLS", () => {
 		assert.equal(contract.discovery.responseShape, "openai-model-list");
 	});
 
-	it("uses sentinel auth omission rules from the canonical contract", () => {
-		const sentinel = getProviderContract("ollama-cloud").sentinel?.signinValue;
-		assert.ok(sentinel);
-		assert.equal(
-			shouldSendAuthorizationHeader("ollama-cloud", sentinel),
-			false,
-		);
-		assert.equal(
-			shouldSendAuthorizationHeader("ollama-cloud", "real-key"),
-			true,
-		);
+	it("keeps ollama-cloud free of sentinel metadata", () => {
+		const contract = getProviderContract(
+			"ollama-cloud",
+		) as typeof getProviderContract extends (...args: any[]) => infer R
+			? R & { sentinel?: unknown }
+			: never;
+		assert.equal(contract.sentinel, undefined);
 	});
 
 	it("throws for providers without discovery targets", () => {

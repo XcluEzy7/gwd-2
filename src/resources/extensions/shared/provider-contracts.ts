@@ -1,6 +1,6 @@
 export type CanonicalProviderId = "nano-gpt" | "nano-gpt-payg" | "ollama-cloud";
 
-export type ProviderAuthMode = "api-key" | "api-key-or-signin-sentinel";
+export type ProviderAuthMode = "api-key";
 export type ProviderProbeFailureKind =
 	| "auth"
 	| "endpoint"
@@ -32,11 +32,6 @@ export interface ProviderContract {
 		cacheTtlMs?: number;
 	};
 	probe?: ProviderProbeDefinition;
-	sentinel?: {
-		signinValue: string;
-		localBaseUrl: string;
-		omitAuthorizationValues: string[];
-	};
 }
 
 export interface ProviderProbeFailure {
@@ -47,8 +42,6 @@ export interface ProviderProbeFailure {
 	redactInErrors: string[];
 }
 
-const OLLAMA_SIGNIN_SENTINEL = "ollama-signin";
-const OLLAMA_LOCAL_BASE_URL = "http://localhost:11434";
 const OLLAMA_CLOUD_BASE_URL = "https://ollama.com/api";
 const NANOGPT_SUBSCRIPTION_BASE_URL =
 	"https://nano-gpt.com/api/subscription/v1";
@@ -100,7 +93,7 @@ export const CANONICAL_PROVIDER_CONTRACTS: Record<
 		id: "ollama-cloud",
 		envVar: "OLLAMA_API_KEY",
 		sharedKeyGroup: "ollama-cloud",
-		authMode: "api-key-or-signin-sentinel",
+		authMode: "api-key",
 		runtimeApi: "ollama-chat",
 		runtimeBaseUrl: OLLAMA_CLOUD_BASE_URL,
 		discovery: {
@@ -116,15 +109,6 @@ export const CANONICAL_PROVIDER_CONTRACTS: Record<
 			authHeader: "optional-bearer",
 			redactInErrors: ["authorization", "bearer", "ollama", "api-key"],
 			expectedResponseShape: "openai-model-list",
-		},
-		sentinel: {
-			signinValue: OLLAMA_SIGNIN_SENTINEL,
-			localBaseUrl: OLLAMA_LOCAL_BASE_URL,
-			omitAuthorizationValues: [
-				"ollama",
-				"local-no-key-needed",
-				OLLAMA_SIGNIN_SENTINEL,
-			],
 		},
 	},
 } as const;
@@ -172,31 +156,6 @@ export function getProviderDiscoveryTtl(
 	providerId: CanonicalProviderId,
 ): number | undefined {
 	return CANONICAL_PROVIDER_CONTRACTS[providerId].discovery.cacheTtlMs;
-}
-
-export function getProviderRuntimeBaseUrlForCredential(
-	providerId: CanonicalProviderId,
-	credential?: string,
-): string {
-	const contract = getProviderContract(providerId);
-	if (
-		providerId === "ollama-cloud" &&
-		credential &&
-		contract.sentinel?.signinValue === credential
-	) {
-		return contract.sentinel.localBaseUrl;
-	}
-	return contract.runtimeBaseUrl;
-}
-
-export function shouldSendAuthorizationHeader(
-	providerId: CanonicalProviderId,
-	credential?: string,
-): boolean {
-	if (!credential) return false;
-	const contract = getProviderContract(providerId);
-	const omitValues = contract.sentinel?.omitAuthorizationValues ?? [];
-	return !omitValues.includes(credential);
 }
 
 export function classifyProbeFailure(

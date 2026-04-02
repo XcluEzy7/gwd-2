@@ -19,7 +19,6 @@ import {
 	classifyProbeFailure,
 	getProviderProbe,
 	isCanonicalProviderId,
-	shouldSendAuthorizationHeader,
 } from "../shared/provider-contracts.js";
 import { getErrorMessage } from "./error-utils.js";
 
@@ -703,7 +702,7 @@ export async function validateProviderCredential(
 		const probe = getProviderProbe(providerId);
 		const start = Date.now();
 		const headers: Record<string, string> = {};
-		if (shouldSendAuthorizationHeader(providerId, trimmedKey)) {
+		if (trimmedKey) {
 			headers.Authorization = `Bearer ${trimmedKey}`;
 		}
 

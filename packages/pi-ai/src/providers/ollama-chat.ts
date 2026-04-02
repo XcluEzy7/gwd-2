@@ -2,14 +2,11 @@
  * Native Ollama /api/chat streaming provider.
  *
  * Speaks Ollama's native protocol (not the OpenAI compatibility shim).
- * Routes requests through the local daemon (if signed in) or directly
- * to https://ollama.com/api with an API key.
+ * Routes requests to the canonical Ollama Cloud API base URL when no
+ * per-model override is provided.
  */
 
-import {
-	getProviderRuntimeBaseUrlForCredential,
-	shouldSendAuthorizationHeader,
-} from "../../../../src/resources/extensions/shared/provider-contracts.js";
+import { getProviderRuntimeBaseUrl } from "../../../../src/resources/extensions/shared/provider-contracts.js";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { calculateCost } from "../models.js";
 import type {
@@ -28,23 +25,14 @@ import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { buildBaseOptions } from "./simple-options.js";
 
-const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
-
 interface OllamaChatOptions extends StreamOptions {
 	keepAlive?: string;
 	numCtx?: number;
 }
 
-function getLocalOllamaHost(): string {
-	const host = process.env.OLLAMA_HOST;
-	if (!host) return DEFAULT_OLLAMA_HOST;
-	if (host.startsWith("http://") || host.startsWith("https://")) return host;
-	return `http://${host}`;
-}
-
-function getBaseUrl(model: Model<"ollama-chat">, apiKey?: string): string {
+function getBaseUrl(model: Model<"ollama-chat">): string {
 	if (model.baseUrl) return model.baseUrl;
-	return getProviderRuntimeBaseUrlForCredential("ollama-cloud", apiKey);
+	return getProviderRuntimeBaseUrl("ollama-cloud");
 }
 
 function buildHeaders(
@@ -54,7 +42,7 @@ function buildHeaders(
 	const headers: Record<string, string> = {
 		"Content-Type": "application/json",
 	};
-	if (shouldSendAuthorizationHeader("ollama-cloud", apiKey)) {
+	if (apiKey) {
 		headers.Authorization = `Bearer ${apiKey}`;
 	}
 	if (model.headers) {
@@ -203,7 +191,7 @@ export const streamOllamaChat: StreamFunction<
 
 		try {
 			const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
-			const baseUrl = getBaseUrl(model, apiKey);
+			const baseUrl = getBaseUrl(model);
 			const headers = buildHeaders(apiKey, model);
 			if (options?.headers) Object.assign(headers, options.headers);
 

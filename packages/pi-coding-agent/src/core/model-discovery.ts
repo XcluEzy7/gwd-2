@@ -6,7 +6,6 @@
 import {
 	getProviderDiscoveryTarget,
 	getProviderDiscoveryTtl,
-	shouldSendAuthorizationHeader,
 } from "../../../../src/resources/extensions/shared/provider-contracts.js";
 
 export interface DiscoveredModel {
@@ -254,7 +253,7 @@ class OllamaCloudDiscoveryAdapter implements ProviderDiscoveryAdapter {
 	): Promise<DiscoveredModel[]> {
 		const url = baseUrl ?? getProviderDiscoveryTarget("ollama-cloud");
 		const headers: Record<string, string> = {};
-		if (shouldSendAuthorizationHeader("ollama-cloud", apiKey)) {
+		if (apiKey) {
 			headers.Authorization = `Bearer ${apiKey}`;
 		}
 		const response = await fetchWithTimeout(url, { headers });

@@ -3,6 +3,7 @@ export { Type } from "@sinclair/typebox";
 
 export * from "./api-registry.js";
 export * from "./env-api-keys.js";
+export * from "./models.custom.js";
 export * from "./models.js";
 export * from "./providers/anthropic.js";
 export * from "./providers/azure-openai-responses.js";
@@ -27,6 +28,6 @@ export type {
 	OAuthProviderInterface,
 } from "./utils/oauth/types.js";
 export * from "./utils/overflow.js";
-export * from "./utils/typebox-helpers.js";
 export * from "./utils/repair-tool-json.js";
+export * from "./utils/typebox-helpers.js";
 export * from "./utils/validation.js";
