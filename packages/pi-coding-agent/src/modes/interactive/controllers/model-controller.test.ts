@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { Key } from "@gsd/pi-tui";
 import { SettingsManager } from "../../../core/settings-manager.js";
+import { ScopedModelsSelectorComponent } from "../components/scoped-models-selector.js";
+import { initTheme } from "../theme/theme.js";
 import {
 	findExactModelMatch,
 	prepareModelCandidates,
@@ -151,5 +154,44 @@ describe("model-controller", () => {
 			includeScopedSessionModels: false,
 		});
 		assert.deepEqual(models, []);
+	});
+
+	it("persists NanoGPT tier policy alongside enabled models from the selector", () => {
+		initTheme(undefined, false);
+		const persisted: {
+			enabledIds?: string[];
+			nanoGptTierPolicy?: "both" | "subscription_only" | "payg_only";
+		} = {};
+		const selector = new ScopedModelsSelectorComponent(
+			{
+				allModels: [
+					createModel("nano-gpt", "sub-model"),
+					createModel("nano-gpt-payg", "payg-model"),
+				],
+				enabledModelIds: new Set(["nano-gpt/sub-model"]),
+				hasEnabledModelsFilter: true,
+				nanoGptTierPolicy: "both",
+			},
+			{
+				onModelToggle() {},
+				onPersist(enabledIds, nanoGptTierPolicy) {
+					persisted.enabledIds = enabledIds;
+					persisted.nanoGptTierPolicy = nanoGptTierPolicy;
+				},
+				onEnableAll() {},
+				onClearAll() {},
+				onToggleProvider() {},
+				onCancel() {},
+			},
+		);
+
+		selector.handleInput("\u0014");
+		selector["callbacks"].onPersist(
+			selector["enabledIds"] ?? selector["allIds"],
+			selector["nanoGptTierPolicy"],
+		);
+
+		assert.deepEqual(persisted.enabledIds, ["nano-gpt/sub-model"]);
+		assert.equal(persisted.nanoGptTierPolicy, "subscription_only");
 	});
 });

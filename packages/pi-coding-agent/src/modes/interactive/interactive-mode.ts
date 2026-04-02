@@ -3514,6 +3514,8 @@ export class InteractiveMode {
 		// Track current enabled state (session-only until persisted)
 		const currentEnabledIds = new Set(enabledModelIds);
 		let currentHasFilter = hasFilter;
+		const currentNanoGptTierPolicy =
+			this.settingsManager.getNanoGptTierPolicy();
 
 		// Helper to update session's scoped models (session-only, no persist)
 		const updateSessionModels = async (enabledIds: Set<string>) => {
@@ -3542,6 +3544,7 @@ export class InteractiveMode {
 					allModels,
 					enabledModelIds: currentEnabledIds,
 					hasEnabledModelsFilter: currentHasFilter,
+					nanoGptTierPolicy: currentNanoGptTierPolicy,
 				},
 				{
 					onModelToggle: async (modelId, enabled) => {
@@ -3577,13 +3580,14 @@ export class InteractiveMode {
 						currentHasFilter = true;
 						await updateSessionModels(currentEnabledIds);
 					},
-					onPersist: (enabledIds) => {
-						// Persist to settings
+					onPersist: (enabledIds, nanoGptTierPolicy) => {
 						const newPatterns =
-							enabledIds.length === allModels.length
-								? undefined // All enabled = clear filter
-								: enabledIds;
-						this.settingsManager.setEnabledModels(newPatterns);
+							enabledIds.length === allModels.length ? undefined : enabledIds;
+						currentNanoGptTierPolicy = nanoGptTierPolicy;
+						this.settingsManager.setScopedModelPersistence({
+							enabledModels: newPatterns,
+							nanoGptTierPolicy,
+						});
 						this.showStatus("Model selection saved to settings");
 					},
 					onCancel: () => {

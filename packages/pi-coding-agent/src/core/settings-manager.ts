@@ -92,6 +92,8 @@ export interface ModelDiscoverySettings {
 	autoRefreshOnModelSelect?: boolean; // default: false - refresh discovery when opening model selector
 }
 
+export type NanoGptTierPolicy = "both" | "subscription_only" | "payg_only";
+
 export type TransportSetting = Transport;
 
 /**
@@ -141,6 +143,7 @@ export interface Settings {
 	terminal?: TerminalSettings;
 	images?: ImageSettings;
 	enabledModels?: string[]; // Model patterns for cycling (same format as --models CLI flag)
+	nanoGptTierPolicy?: NanoGptTierPolicy;
 	doubleEscapeAction?: "fork" | "tree" | "none"; // Action for double-escape with empty editor (default: "tree")
 	treeFilterMode?:
 		| "default"
@@ -467,7 +470,26 @@ export class SettingsManager {
 			}
 		}
 
+		if (
+			"nanoGptTierPolicy" in settings &&
+			!SettingsManager.isNanoGptTierPolicy(settings.nanoGptTierPolicy)
+		) {
+			delete settings.nanoGptTierPolicy;
+		}
+
 		return settings as Settings;
+	}
+
+	private static isNanoGptTierPolicy(
+		value: unknown,
+	): value is NanoGptTierPolicy {
+		return (
+			value === "both" || value === "subscription_only" || value === "payg_only"
+		);
+	}
+
+	private static normalizeNanoGptTierPolicy(value: unknown): NanoGptTierPolicy {
+		return SettingsManager.isNanoGptTierPolicy(value) ? value : "both";
 	}
 
 	getGlobalSettings(): Settings {
@@ -1057,6 +1079,31 @@ export class SettingsManager {
 
 	setEnabledModels(patterns: string[] | undefined): void {
 		this.setGlobalSetting("enabledModels", patterns);
+	}
+
+	getNanoGptTierPolicy(): NanoGptTierPolicy {
+		return SettingsManager.normalizeNanoGptTierPolicy(
+			this.settings.nanoGptTierPolicy,
+		);
+	}
+
+	setNanoGptTierPolicy(policy: NanoGptTierPolicy): void {
+		this.setGlobalSetting(
+			"nanoGptTierPolicy",
+			SettingsManager.normalizeNanoGptTierPolicy(policy),
+		);
+	}
+
+	setScopedModelPersistence(options: {
+		enabledModels: string[] | undefined;
+		nanoGptTierPolicy: NanoGptTierPolicy;
+	}): void {
+		this.globalSettings.enabledModels = options.enabledModels;
+		this.globalSettings.nanoGptTierPolicy =
+			SettingsManager.normalizeNanoGptTierPolicy(options.nanoGptTierPolicy);
+		this.markModified("enabledModels");
+		this.markModified("nanoGptTierPolicy");
+		this.save();
 	}
 
 	getDoubleEscapeAction(): "fork" | "tree" | "none" {

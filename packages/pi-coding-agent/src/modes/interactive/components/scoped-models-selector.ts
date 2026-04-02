@@ -10,6 +10,7 @@ import {
 	Spacer,
 	Text,
 } from "@gsd/pi-tui";
+import type { NanoGptTierPolicy } from "../../../core/settings-manager.js";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 
@@ -23,11 +24,16 @@ function isEnabled(enabledIds: EnabledIds, id: string): boolean {
 function toggle(enabledIds: EnabledIds, id: string): EnabledIds {
 	if (enabledIds === null) return [id]; // First toggle: start with only this one
 	const index = enabledIds.indexOf(id);
-	if (index >= 0) return [...enabledIds.slice(0, index), ...enabledIds.slice(index + 1)];
+	if (index >= 0)
+		return [...enabledIds.slice(0, index), ...enabledIds.slice(index + 1)];
 	return [...enabledIds, id];
 }
 
-function enableAll(enabledIds: EnabledIds, allIds: string[], targetIds?: string[]): EnabledIds {
+function enableAll(
+	enabledIds: EnabledIds,
+	allIds: string[],
+	targetIds?: string[],
+): EnabledIds {
 	if (enabledIds === null) return null; // Already all enabled
 	const targets = targetIds ?? allIds;
 	const result = [...enabledIds];
@@ -37,7 +43,11 @@ function enableAll(enabledIds: EnabledIds, allIds: string[], targetIds?: string[
 	return result.length === allIds.length ? null : result;
 }
 
-function clearAll(enabledIds: EnabledIds, allIds: string[], targetIds?: string[]): EnabledIds {
+function clearAll(
+	enabledIds: EnabledIds,
+	allIds: string[],
+	targetIds?: string[],
+): EnabledIds {
 	if (enabledIds === null) {
 		return targetIds ? allIds.filter((id) => !targetIds.includes(id)) : [];
 	}
@@ -45,7 +55,12 @@ function clearAll(enabledIds: EnabledIds, allIds: string[], targetIds?: string[]
 	return enabledIds.filter((id) => !targets.has(id));
 }
 
-function move(enabledIds: EnabledIds, allIds: string[], id: string, delta: number): EnabledIds {
+function move(
+	enabledIds: EnabledIds,
+	allIds: string[],
+	id: string,
+	delta: number,
+): EnabledIds {
 	const list = enabledIds ?? [...allIds];
 	const index = list.indexOf(id);
 	if (index < 0) return list;
@@ -68,24 +83,49 @@ interface ModelItem {
 	enabled: boolean;
 }
 
+const NANO_GPT_POLICY_LABELS: Record<NanoGptTierPolicy, string> = {
+	both: "both",
+	subscription_only: "subscription only",
+	payg_only: "PAYG only",
+};
+
+function nextNanoGptTierPolicy(current: NanoGptTierPolicy): NanoGptTierPolicy {
+	switch (current) {
+		case "subscription_only":
+			return "payg_only";
+		case "payg_only":
+			return "both";
+		default:
+			return "subscription_only";
+	}
+}
+
 export interface ModelsConfig {
 	allModels: Model<any>[];
 	enabledModelIds: Set<string>;
 	/** true if enabledModels setting is defined (empty = all enabled) */
 	hasEnabledModelsFilter: boolean;
+	nanoGptTierPolicy: NanoGptTierPolicy;
 }
 
 export interface ModelsCallbacks {
 	/** Called when a model is toggled (session-only, no persist) */
 	onModelToggle: (modelId: string, enabled: boolean) => void;
 	/** Called when user wants to persist current selection to settings */
-	onPersist: (enabledModelIds: string[]) => void;
+	onPersist: (
+		enabledModelIds: string[],
+		nanoGptTierPolicy: NanoGptTierPolicy,
+	) => void;
 	/** Called when user enables all models. Returns list of all model IDs. */
 	onEnableAll: (allModelIds: string[]) => void;
 	/** Called when user clears all models */
 	onClearAll: () => void;
 	/** Called when user toggles all models for a provider. Returns affected model IDs. */
-	onToggleProvider: (provider: string, modelIds: string[], enabled: boolean) => void;
+	onToggleProvider: (
+		provider: string,
+		modelIds: string[],
+		enabled: boolean,
+	) => void;
 	onCancel: () => void;
 }
 
@@ -93,7 +133,10 @@ export interface ModelsCallbacks {
  * Component for enabling/disabling models for Ctrl+P cycling.
  * Changes are session-only until explicitly persisted with Ctrl+S.
  */
-export class ScopedModelsSelectorComponent extends Container implements Focusable {
+export class ScopedModelsSelectorComponent
+	extends Container
+	implements Focusable
+{
 	private modelsById: Map<string, Model<any>> = new Map();
 	private allIds: string[] = [];
 	private enabledIds: EnabledIds = null;
@@ -115,6 +158,8 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 	private callbacks: ModelsCallbacks;
 	private maxVisible = 15;
 	private isDirty = false;
+	private nanoGptTierPolicy!: NanoGptTierPolicy;
+	private nanoGptPolicyText!: Text;
 
 	constructor(config: ModelsConfig, callbacks: ModelsCallbacks) {
 		super();
@@ -126,19 +171,34 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 			this.allIds.push(fullId);
 		}
 
-		this.enabledIds = config.hasEnabledModelsFilter ? [...config.enabledModelIds] : null;
+		this.enabledIds = config.hasEnabledModelsFilter
+			? [...config.enabledModelIds]
+			: null;
+		this.nanoGptTierPolicy = config.nanoGptTierPolicy;
 		this.filteredItems = this.buildItems();
 
 		// Header
 		this.addChild(new DynamicBorder());
 		this.addChild(new Spacer(1));
-		this.addChild(new Text(theme.fg("accent", theme.bold("Model Configuration")), 0, 0));
-		this.addChild(new Text(theme.fg("muted", "Session-only. Ctrl+S to save to settings."), 0, 0));
+		this.addChild(
+			new Text(theme.fg("accent", theme.bold("Model Configuration")), 0, 0),
+		);
+		this.addChild(
+			new Text(
+				theme.fg("muted", "Session-only. Ctrl+S to save to settings."),
+				0,
+				0,
+			),
+		);
 		this.addChild(new Spacer(1));
 
 		// Search input
 		this.searchInput = new Input();
 		this.addChild(this.searchInput);
+		this.addChild(new Spacer(1));
+
+		this.nanoGptPolicyText = new Text(this.getNanoGptPolicyText(), 0, 0);
+		this.addChild(this.nanoGptPolicyText);
 		this.addChild(new Spacer(1));
 
 		// List container
@@ -165,22 +225,47 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 			}));
 	}
 
+	private getNanoGptPolicyText(): string {
+		return theme.fg(
+			"muted",
+			`  NanoGPT tier policy: ${NANO_GPT_POLICY_LABELS[this.nanoGptTierPolicy]} (Ctrl+T to cycle)`,
+		);
+	}
+
 	private getFooterText(): string {
 		const enabledCount = this.enabledIds?.length ?? this.allIds.length;
 		const allEnabled = this.enabledIds === null;
-		const countText = allEnabled ? "all enabled" : `${enabledCount}/${this.allIds.length} enabled`;
-		const parts = ["Enter toggle", "^A all", "^X clear", "^P provider", `${process.platform === "darwin" ? "⌥↑↓" : "Alt+↑↓"} reorder`, "^S save", countText];
+		const countText = allEnabled
+			? "all enabled"
+			: `${enabledCount}/${this.allIds.length} enabled`;
+		const parts = [
+			"Enter toggle",
+			"^A all",
+			"^X clear",
+			"^P provider",
+			"^T NanoGPT tier",
+			`${process.platform === "darwin" ? "⌥↑↓" : "Alt+↑↓"} reorder`,
+			"^S save",
+			countText,
+		];
 		return this.isDirty
-			? theme.fg("dim", `  ${parts.join(" · ")} `) + theme.fg("warning", "(unsaved)")
+			? theme.fg("dim", `  ${parts.join(" · ")} `) +
+					theme.fg("warning", "(unsaved)")
 			: theme.fg("dim", `  ${parts.join(" · ")}`);
 	}
 
 	private refresh(): void {
 		const query = this.searchInput.getValue();
 		const items = this.buildItems();
-		this.filteredItems = query ? fuzzyFilter(items, query, (i) => `${i.model.id} ${i.model.provider}`) : items;
-		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredItems.length - 1));
+		this.filteredItems = query
+			? fuzzyFilter(items, query, (i) => `${i.model.id} ${i.model.provider}`)
+			: items;
+		this.selectedIndex = Math.min(
+			this.selectedIndex,
+			Math.max(0, this.filteredItems.length - 1),
+		);
 		this.updateList();
+		this.nanoGptPolicyText.setText(this.getNanoGptPolicyText());
 		this.footerText.setText(this.getFooterText());
 	}
 
@@ -188,38 +273,67 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 		this.listContainer.clear();
 
 		if (this.filteredItems.length === 0) {
-			this.listContainer.addChild(new Text(theme.fg("muted", "  No matching models"), 0, 0));
+			this.listContainer.addChild(
+				new Text(theme.fg("muted", "  No matching models"), 0, 0),
+			);
 			return;
 		}
 
 		const startIndex = Math.max(
 			0,
-			Math.min(this.selectedIndex - Math.floor(this.maxVisible / 2), this.filteredItems.length - this.maxVisible),
+			Math.min(
+				this.selectedIndex - Math.floor(this.maxVisible / 2),
+				this.filteredItems.length - this.maxVisible,
+			),
 		);
-		const endIndex = Math.min(startIndex + this.maxVisible, this.filteredItems.length);
+		const endIndex = Math.min(
+			startIndex + this.maxVisible,
+			this.filteredItems.length,
+		);
 		const allEnabled = this.enabledIds === null;
 
 		for (let i = startIndex; i < endIndex; i++) {
 			const item = this.filteredItems[i]!;
 			const isSelected = i === this.selectedIndex;
 			const prefix = isSelected ? theme.fg("accent", "→ ") : "  ";
-			const modelText = isSelected ? theme.fg("accent", item.model.id) : item.model.id;
+			const modelText = isSelected
+				? theme.fg("accent", item.model.id)
+				: item.model.id;
 			const providerBadge = theme.fg("muted", ` [${item.model.provider}]`);
-			const status = allEnabled ? "" : item.enabled ? theme.fg("success", " ✓") : theme.fg("dim", " ✗");
-			this.listContainer.addChild(new Text(`${prefix}${modelText}${providerBadge}${status}`, 0, 0));
+			const status = allEnabled
+				? ""
+				: item.enabled
+					? theme.fg("success", " ✓")
+					: theme.fg("dim", " ✗");
+			this.listContainer.addChild(
+				new Text(`${prefix}${modelText}${providerBadge}${status}`, 0, 0),
+			);
 		}
 
 		// Add scroll indicator if needed
 		if (startIndex > 0 || endIndex < this.filteredItems.length) {
 			this.listContainer.addChild(
-				new Text(theme.fg("muted", `  (${this.selectedIndex + 1}/${this.filteredItems.length})`), 0, 0),
+				new Text(
+					theme.fg(
+						"muted",
+						`  (${this.selectedIndex + 1}/${this.filteredItems.length})`,
+					),
+					0,
+					0,
+				),
 			);
 		}
 
 		if (this.filteredItems.length > 0) {
 			const selected = this.filteredItems[this.selectedIndex];
 			this.listContainer.addChild(new Spacer(1));
-			this.listContainer.addChild(new Text(theme.fg("muted", `  Model Name: ${selected.model.name}`), 0, 0));
+			this.listContainer.addChild(
+				new Text(
+					theme.fg("muted", `  Model Name: ${selected.model.name}`),
+					0,
+					0,
+				),
+			);
 		}
 	}
 
@@ -229,13 +343,19 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 		// Navigation
 		if (kb.matches(data, "selectUp")) {
 			if (this.filteredItems.length === 0) return;
-			this.selectedIndex = this.selectedIndex === 0 ? this.filteredItems.length - 1 : this.selectedIndex - 1;
+			this.selectedIndex =
+				this.selectedIndex === 0
+					? this.filteredItems.length - 1
+					: this.selectedIndex - 1;
 			this.updateList();
 			return;
 		}
 		if (kb.matches(data, "selectDown")) {
 			if (this.filteredItems.length === 0) return;
-			this.selectedIndex = this.selectedIndex === this.filteredItems.length - 1 ? 0 : this.selectedIndex + 1;
+			this.selectedIndex =
+				this.selectedIndex === this.filteredItems.length - 1
+					? 0
+					: this.selectedIndex + 1;
 			this.updateList();
 			return;
 		}
@@ -250,7 +370,12 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 				const newIndex = currentIndex + delta;
 				// Only move if within bounds
 				if (newIndex >= 0 && newIndex < enabledList.length) {
-					this.enabledIds = move(this.enabledIds, this.allIds, item.fullId, delta);
+					this.enabledIds = move(
+						this.enabledIds,
+						this.allIds,
+						item.fullId,
+						delta,
+					);
 					this.isDirty = true;
 					this.selectedIndex += delta;
 					this.refresh();
@@ -267,7 +392,10 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 				this.enabledIds = toggle(this.enabledIds, item.fullId);
 				this.isDirty = true;
 				if (wasAllEnabled) this.callbacks.onClearAll();
-				this.callbacks.onModelToggle(item.fullId, isEnabled(this.enabledIds, item.fullId));
+				this.callbacks.onModelToggle(
+					item.fullId,
+					isEnabled(this.enabledIds, item.fullId),
+				);
 				this.refresh();
 			}
 			return;
@@ -275,7 +403,9 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 
 		// Ctrl+A - Enable all (filtered if search active, otherwise all)
 		if (matchesKey(data, Key.ctrl("a"))) {
-			const targetIds = this.searchInput.getValue() ? this.filteredItems.map((i) => i.fullId) : undefined;
+			const targetIds = this.searchInput.getValue()
+				? this.filteredItems.map((i) => i.fullId)
+				: undefined;
 			this.enabledIds = enableAll(this.enabledIds, this.allIds, targetIds);
 			this.isDirty = true;
 			this.callbacks.onEnableAll(targetIds ?? this.allIds);
@@ -285,7 +415,9 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 
 		// Ctrl+X - Clear all (filtered if search active, otherwise all)
 		if (matchesKey(data, Key.ctrl("x"))) {
-			const targetIds = this.searchInput.getValue() ? this.filteredItems.map((i) => i.fullId) : undefined;
+			const targetIds = this.searchInput.getValue()
+				? this.filteredItems.map((i) => i.fullId)
+				: undefined;
 			this.enabledIds = clearAll(this.enabledIds, this.allIds, targetIds);
 			this.isDirty = true;
 			this.callbacks.onClearAll();
@@ -298,8 +430,12 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 			const item = this.filteredItems[this.selectedIndex];
 			if (item) {
 				const provider = item.model.provider;
-				const providerIds = this.allIds.filter((id) => this.modelsById.get(id)!.provider === provider);
-				const allEnabled = providerIds.every((id) => isEnabled(this.enabledIds, id));
+				const providerIds = this.allIds.filter(
+					(id) => this.modelsById.get(id)!.provider === provider,
+				);
+				const allEnabled = providerIds.every((id) =>
+					isEnabled(this.enabledIds, id),
+				);
 				this.enabledIds = allEnabled
 					? clearAll(this.enabledIds, this.allIds, providerIds)
 					: enableAll(this.enabledIds, this.allIds, providerIds);
@@ -310,9 +446,19 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 			return;
 		}
 
+		if (matchesKey(data, Key.ctrl("t"))) {
+			this.nanoGptTierPolicy = nextNanoGptTierPolicy(this.nanoGptTierPolicy);
+			this.isDirty = true;
+			this.refresh();
+			return;
+		}
+
 		// Ctrl+S - Save/persist to settings
 		if (matchesKey(data, Key.ctrl("s"))) {
-			this.callbacks.onPersist(this.enabledIds ?? [...this.allIds]);
+			this.callbacks.onPersist(
+				this.enabledIds ?? [...this.allIds],
+				this.nanoGptTierPolicy,
+			);
 			this.isDirty = false;
 			this.footerText.setText(this.getFooterText());
 			return;
