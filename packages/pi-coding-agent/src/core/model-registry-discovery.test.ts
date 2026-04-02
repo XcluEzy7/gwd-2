@@ -5,12 +5,19 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { AuthStorage } from "./auth-storage.js";
 import { ModelDiscoveryCache } from "./discovery-cache.js";
-import { getDefaultTTL, getDiscoverableProviders, getDiscoveryAdapter } from "./model-discovery.js";
+import {
+	getDefaultTTL,
+	getDiscoverableProviders,
+	getDiscoveryAdapter,
+} from "./model-discovery.js";
 
 let testDir: string;
 
 beforeEach(() => {
-	testDir = join(tmpdir(), `model-registry-discovery-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+	testDir = join(
+		tmpdir(),
+		`model-registry-discovery-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+	);
 	mkdirSync(testDir, { recursive: true });
 });
 
@@ -53,15 +60,29 @@ describe("Discovery adapter resolution", () => {
 		const providers = getDiscoverableProviders();
 		for (const provider of providers) {
 			const adapter = getDiscoveryAdapter(provider);
-			assert.equal(adapter.supportsDiscovery, true, `${provider} should support discovery`);
+			assert.equal(
+				adapter.supportsDiscovery,
+				true,
+				`${provider} should support discovery`,
+			);
 		}
 	});
 
 	it("static adapters return empty model lists", async () => {
-		const staticProviders = ["anthropic", "bedrock", "azure-openai", "groq", "cerebras"];
+		const staticProviders = [
+			"anthropic",
+			"bedrock",
+			"azure-openai",
+			"groq",
+			"cerebras",
+		];
 		for (const provider of staticProviders) {
 			const adapter = getDiscoveryAdapter(provider);
-			assert.equal(adapter.supportsDiscovery, false, `${provider} should not support discovery`);
+			assert.equal(
+				adapter.supportsDiscovery,
+				false,
+				`${provider} should not support discovery`,
+			);
 			const models = await adapter.fetchModels("dummy-key");
 			assert.deepEqual(models, [], `${provider} should return empty models`);
 		}
@@ -72,17 +93,39 @@ describe("Discovery adapter resolution", () => {
 
 describe("AuthStorage — hasAuth for discovery providers", () => {
 	it("returns false for providers without auth", () => {
-		const storage = AuthStorage.inMemory({});
-		assert.equal(storage.hasAuth("openai"), false);
-		assert.equal(storage.hasAuth("ollama"), false);
+		const originalOpenAi = process.env.OPENAI_API_KEY;
+		const originalOllama = process.env.OLLAMA_API_KEY;
+		delete process.env.OPENAI_API_KEY;
+		delete process.env.OLLAMA_API_KEY;
+		try {
+			const storage = AuthStorage.inMemory({});
+			assert.equal(storage.hasAuth("openai"), false);
+			assert.equal(storage.hasAuth("ollama"), false);
+		} finally {
+			if (originalOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+			else process.env.OPENAI_API_KEY = originalOpenAi;
+			if (originalOllama === undefined) delete process.env.OLLAMA_API_KEY;
+			else process.env.OLLAMA_API_KEY = originalOllama;
+		}
 	});
 
 	it("returns true for providers with stored keys", () => {
-		const storage = AuthStorage.inMemory({
-			openai: { type: "api_key" as const, key: "sk-test" },
-		});
-		assert.equal(storage.hasAuth("openai"), true);
-		assert.equal(storage.hasAuth("ollama"), false);
+		const originalOpenAi = process.env.OPENAI_API_KEY;
+		const originalOllama = process.env.OLLAMA_API_KEY;
+		delete process.env.OPENAI_API_KEY;
+		delete process.env.OLLAMA_API_KEY;
+		try {
+			const storage = AuthStorage.inMemory({
+				openai: { type: "api_key" as const, key: "sk-test" },
+			});
+			assert.equal(storage.hasAuth("openai"), true);
+			assert.equal(storage.hasAuth("ollama"), false);
+		} finally {
+			if (originalOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+			else process.env.OPENAI_API_KEY = originalOpenAi;
+			if (originalOllama === undefined) delete process.env.OLLAMA_API_KEY;
+			else process.env.OLLAMA_API_KEY = originalOllama;
+		}
 	});
 });
 
@@ -123,7 +166,10 @@ describe("Discovery TTL configuration", () => {
 	it("ollama has shortest TTL (local models change often)", () => {
 		const ollamaTTL = getDefaultTTL("ollama");
 		const openaiTTL = getDefaultTTL("openai");
-		assert.ok(ollamaTTL < openaiTTL, "ollama TTL should be shorter than openai");
+		assert.ok(
+			ollamaTTL < openaiTTL,
+			"ollama TTL should be shorter than openai",
+		);
 	});
 
 	it("unknown providers get default TTL", () => {

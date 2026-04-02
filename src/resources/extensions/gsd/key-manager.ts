@@ -475,6 +475,21 @@ export async function handleAddKey(
 		}
 	}
 
+	if (isCanonicalProviderId(provider.id)) {
+		ctx.ui.notify(
+			`Validating ${provider.label} with the canonical probe...`,
+			"info",
+		);
+		const validation = await validateProviderCredential(provider.id, key);
+		if (!validation.ok) {
+			ctx.ui.notify(
+				`Validation failed for ${provider.label}: ${validation.message}`,
+				"error",
+			);
+			return false;
+		}
+	}
+
 	auth.set(provider.id, { type: "api_key", key });
 	if (provider.envVar) {
 		process.env[provider.envVar] = key;
@@ -583,6 +598,13 @@ export interface TestResult {
 	latencyMs?: number;
 }
 
+export interface ProviderCredentialValidationResult {
+	ok: boolean;
+	message: string;
+	latencyMs?: number;
+	failureKind?: ReturnType<typeof classifyProbeFailure>["kind"];
+}
+
 /** Test endpoint configurations per provider */
 const TEST_ENDPOINTS: Record<
 	string,
@@ -655,14 +677,183 @@ const TEST_ENDPOINTS: Record<
 	},
 };
 
+function hasExpectedOpenAiModelListShape(payload: unknown): boolean {
+	return Boolean(
+		payload &&
+			typeof payload === "object" &&
+			Array.isArray((payload as { data?: unknown }).data),
+	);
+}
+
+export async function validateProviderCredential(
+	providerId: string,
+	key: string,
+	fetchImpl: typeof fetch = fetch,
+): Promise<ProviderCredentialValidationResult> {
+	const trimmedKey = key.trim();
+	if (!trimmedKey) {
+		return {
+			ok: false,
+			message: `${providerId} requires a non-empty API key`,
+			failureKind: "auth",
+		};
+	}
+
+	if (isCanonicalProviderId(providerId)) {
+		const probe = getProviderProbe(providerId);
+		const start = Date.now();
+		const headers: Record<string, string> = {};
+		if (shouldSendAuthorizationHeader(providerId, trimmedKey)) {
+			headers.Authorization = `Bearer ${trimmedKey}`;
+		}
+
+		try {
+			const response = await fetchImpl(probe.url, {
+				method: probe.method,
+				headers,
+				signal: AbortSignal.timeout(probe.timeoutMs),
+			});
+			const latencyMs = Date.now() - start;
+
+			if (!response.ok) {
+				const failure = classifyProbeFailure(providerId, {
+					status: response.status,
+				});
+				return {
+					ok: false,
+					message: failure.message,
+					latencyMs,
+					failureKind: failure.kind,
+				};
+			}
+
+			const payload = await response.json().catch(() => undefined);
+			if (!hasExpectedOpenAiModelListShape(payload)) {
+				const failure = classifyProbeFailure(providerId, { malformed: true });
+				return {
+					ok: false,
+					message: failure.message,
+					latencyMs,
+					failureKind: failure.kind,
+				};
+			}
+
+			return {
+				ok: true,
+				message: `${providerId} canonical probe validated credentials`,
+				latencyMs,
+			};
+		} catch (err) {
+			const latencyMs = Date.now() - start;
+			const raw = getErrorMessage(err);
+			const failure = classifyProbeFailure(providerId, {
+				timedOut: raw.includes("timeout") || raw.includes("AbortError"),
+				message: raw,
+			});
+			return {
+				ok: false,
+				message: failure.message,
+				latencyMs,
+				failureKind: failure.kind,
+			};
+		}
+	}
+
+	const provider = findProvider(providerId);
+	if (!provider) {
+		return {
+			ok: false,
+			message: `${providerId} is not a supported provider`,
+			failureKind: "network",
+		};
+	}
+
+	const endpoint = TEST_ENDPOINTS[provider.id];
+	if (!endpoint) {
+		return {
+			ok: false,
+			message: `${providerId} has no validation endpoint configured`,
+			failureKind: "network",
+		};
+	}
+
+	let url = endpoint.url;
+	if (provider.id === "telegram_bot") {
+		url = `https://api.telegram.org/bot${trimmedKey}/getMe`;
+	}
+
+	let body = endpoint.body;
+	if (provider.id === "tavily" && body) {
+		const parsed = JSON.parse(body);
+		parsed.api_key = trimmedKey;
+		body = JSON.stringify(parsed);
+	}
+
+	const start = Date.now();
+	try {
+		const res = await fetchImpl(url, {
+			method: endpoint.method ?? "GET",
+			headers: endpoint.headers?.(trimmedKey) ?? {},
+			body: body ?? undefined,
+			signal: AbortSignal.timeout(15_000),
+		});
+		const latencyMs = Date.now() - start;
+
+		if (res.ok) {
+			return {
+				ok: true,
+				message: `${provider.id} credentials validated`,
+				latencyMs,
+			};
+		}
+
+		if (res.status === 401 || res.status === 403) {
+			return {
+				ok: false,
+				message: `invalid key (${res.status})`,
+				latencyMs,
+				failureKind: "auth",
+			};
+		}
+
+		if (res.status === 429) {
+			return {
+				ok: false,
+				message: "rate limited",
+				latencyMs,
+				failureKind: "http",
+			};
+		}
+
+		return {
+			ok: false,
+			message: `HTTP ${res.status}`,
+			latencyMs,
+			failureKind: "http",
+		};
+	} catch (err) {
+		const latencyMs = Date.now() - start;
+		const msg = getErrorMessage(err);
+		if (msg.includes("timeout") || msg.includes("AbortError")) {
+			return {
+				ok: false,
+				message: "timeout (15s)",
+				latencyMs,
+				failureKind: "timeout",
+			};
+		}
+		return { ok: false, message: msg, latencyMs, failureKind: "network" };
+	}
+}
+
 /**
  * Test a single provider's key.
  */
 export async function testProviderKey(
 	provider: ProviderInfo,
 	auth: AuthStorage,
+	fetchImpl: typeof fetch = fetch,
 ): Promise<TestResult> {
-	// Get the API key
 	const key = await auth.getApiKey(provider.id);
 	if (!key || key === "<authenticated>") {
 		if (!key) {
@@ -675,75 +866,22 @@ export async function testProviderKey(
 		};
 	}
 
-	const endpoint = TEST_ENDPOINTS[provider.id];
-	if (!endpoint) {
+	const result = await validateProviderCredential(provider.id, key, fetchImpl);
+	if (result.ok) {
 		return {
 			provider,
-			status: "skipped",
-			message: "no test endpoint configured",
+			status: "valid",
+			message: result.message,
+			latencyMs: result.latencyMs,
 		};
 	}
 
-	// Special handling for Telegram (token in URL)
-	let url = endpoint.url;
-	if (provider.id === "telegram_bot") {
-		url = `https://api.telegram.org/bot${key}/getMe`;
-	}
-
-	// Special handling for Tavily (API key in body)
-	let body = endpoint.body;
-	if (provider.id === "tavily" && body) {
-		const parsed = JSON.parse(body);
-		parsed.api_key = key;
-		body = JSON.stringify(parsed);
-	}
-
-	const start = Date.now();
-	try {
-		const res = await fetch(url, {
-			method: endpoint.method ?? "GET",
-			headers: endpoint.headers?.(key) ?? {},
-			body: body ?? undefined,
-			signal: AbortSignal.timeout(15_000),
-		});
-		const latencyMs = Date.now() - start;
-
-		if (res.ok) {
-			return { provider, status: "valid", message: "valid", latencyMs };
-		}
-
-		if (res.status === 401 || res.status === 403) {
-			return {
-				provider,
-				status: "invalid",
-				message: `invalid key (${res.status})`,
-				latencyMs,
-			};
-		}
-
-		if (res.status === 429) {
-			return {
-				provider,
-				status: "rate_limited",
-				message: "rate limited",
-				latencyMs,
-			};
-		}
-
-		return {
-			provider,
-			status: "error",
-			message: `HTTP ${res.status}`,
-			latencyMs,
-		};
-	} catch (err) {
-		const latencyMs = Date.now() - start;
-		const msg = getErrorMessage(err);
-		if (msg.includes("timeout") || msg.includes("AbortError")) {
-			return { provider, status: "error", message: "timeout (15s)", latencyMs };
-		}
-		return { provider, status: "error", message: msg, latencyMs };
-	}
+	return {
+		provider,
+		status: result.failureKind === "auth" ? "invalid" : "error",
+		message: result.message,
+		latencyMs: result.latencyMs,
+	};
 }
 
 /**
