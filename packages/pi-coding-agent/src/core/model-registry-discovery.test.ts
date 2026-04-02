@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -10,6 +10,7 @@ import {
 	getDiscoverableProviders,
 	getDiscoveryAdapter,
 } from "./model-discovery.js";
+import { ModelRegistry } from "./model-registry.js";
 
 let testDir: string;
 
@@ -28,6 +29,36 @@ afterEach(() => {
 		// Cleanup best-effort
 	}
 });
+
+function createRegistry(options?: {
+	auth?: Record<string, { type: "api_key"; key: string }>;
+}): { registry: ModelRegistry; cache: ModelDiscoveryCache } {
+	const cache = new ModelDiscoveryCache(join(testDir, "discovery-cache.json"));
+	const authStorage = AuthStorage.inMemory(options?.auth ?? {});
+	const registry = new ModelRegistry(authStorage, undefined, {
+		discoveryCache: cache,
+	});
+	return { registry, cache };
+}
+
+function markEntryStale(cache: ModelDiscoveryCache, provider: string): void {
+	const entry = cache.get(provider);
+	assert.ok(entry, `expected cache entry for ${provider}`);
+	entry.fetchedAt = Date.now() - entry.ttlMs - 10;
+}
+
+async function withStubbedFetch<T>(
+	stub: typeof globalThis.fetch,
+	fn: () => Promise<T>,
+): Promise<T> {
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = stub;
+	try {
+		return await fn();
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+}
 
 // ─── discovery cache integration ─────────────────────────────────────────────
 
@@ -50,6 +81,178 @@ describe("ModelDiscoveryCache — integration with discovery", () => {
 		const entry = cache.get("openai");
 		assert.ok(entry);
 		assert.equal(entry.ttlMs, 999);
+	});
+});
+
+// ─── registry discovery orchestration ────────────────────────────────────────
+
+describe("ModelRegistry — discovery preparation", () => {
+	it("skips rediscovery when cache is fresh and exposes cached discovered models", async () => {
+		const { registry, cache } = createRegistry({
+			auth: { openai: { type: "api_key", key: "sk-test" } },
+		});
+		cache.set("openai", [{ id: "cached-model", name: "Cached Model" }], 60_000);
+
+		await withStubbedFetch(
+			(async () => {
+				throw new Error("fetch should not run for fresh cache");
+			}) as typeof globalThis.fetch,
+			async () => {
+				const results = await registry.prepareDiscoveryRefresh({
+					providers: ["openai"],
+				});
+				assert.equal(results.length, 1);
+				assert.equal(results[0].source, "fresh-cache");
+				assert.equal(results[0].models[0].id, "cached-model");
+
+				const discovered = registry
+					.getAllWithDiscovered()
+					.find(
+						(model) =>
+							model.provider === "openai" && model.id === "cached-model",
+					);
+				assert.ok(discovered);
+				assert.equal(registry.isDiscovered(discovered), true);
+			},
+		);
+	});
+
+	it("rediscoveries stale cache entries and updates visible discovered models", async () => {
+		const { registry, cache } = createRegistry({
+			auth: { openai: { type: "api_key", key: "sk-test" } },
+		});
+		cache.set("openai", [{ id: "stale-model" }], 1);
+		markEntryStale(cache, "openai");
+
+		let fetchCalls = 0;
+		await withStubbedFetch(
+			(async () => {
+				fetchCalls += 1;
+				return new Response(
+					JSON.stringify({ data: [{ id: "rediscovered-model" }] }),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			}) as typeof globalThis.fetch,
+			async () => {
+				const results = await registry.prepareDiscoveryRefresh({
+					providers: ["openai"],
+				});
+				assert.equal(fetchCalls, 1);
+				assert.equal(results[0].source, "rediscovered");
+				assert.equal(results[0].models[0].id, "rediscovered-model");
+				assert.equal(cache.get("openai")?.models[0].id, "rediscovered-model");
+
+				const visible = registry
+					.getAllWithDiscovered()
+					.find(
+						(model) =>
+							model.provider === "openai" && model.id === "rediscovered-model",
+					);
+				assert.ok(visible);
+			},
+		);
+	});
+
+	it("forced refresh bypasses fresh cache and replaces discovered visibility immediately", async () => {
+		const { registry, cache } = createRegistry({
+			auth: { openai: { type: "api_key", key: "sk-test" } },
+		});
+		cache.set("openai", [{ id: "old-model" }], 60_000);
+
+		let fetchCalls = 0;
+		await withStubbedFetch(
+			(async () => {
+				fetchCalls += 1;
+				return new Response(JSON.stringify({ data: [{ id: "new-model" }] }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}) as typeof globalThis.fetch,
+			async () => {
+				const results = await registry.prepareDiscoveryRefresh({
+					providers: ["openai"],
+					force: true,
+				});
+				assert.equal(fetchCalls, 1);
+				assert.equal(results[0].source, "rediscovered");
+
+				const models = registry.getAllWithDiscovered();
+				assert.equal(
+					models.some(
+						(model) => model.provider === "openai" && model.id === "new-model",
+					),
+					true,
+				);
+				assert.equal(
+					models.some(
+						(model) => model.provider === "openai" && model.id === "old-model",
+					),
+					false,
+				);
+			},
+		);
+	});
+
+	it("returns skipped results for unknown providers, providers without discovery, and missing auth", async () => {
+		const { registry } = createRegistry();
+
+		await withStubbedFetch(
+			(async () => {
+				throw new Error("fetch should not run for skipped providers");
+			}) as typeof globalThis.fetch,
+			async () => {
+				const results = await registry.prepareDiscoveryRefresh({
+					providers: ["unknown-provider", "anthropic", "openai"],
+				});
+				assert.deepEqual(
+					results.map((result) => [result.provider, result.source]),
+					[
+						["unknown-provider", "skipped"],
+						["anthropic", "skipped"],
+						["openai", "skipped"],
+					],
+				);
+			},
+		);
+	});
+
+	it("returns empty results for an empty provider scope", async () => {
+		const { registry } = createRegistry();
+		const results = await registry.prepareDiscoveryRefresh({ providers: [] });
+		assert.deepEqual(results, []);
+		assert.equal(
+			registry.getAllWithDiscovered().length,
+			registry.getAll().length,
+		);
+	});
+
+	it("records adapter failures as errors and keeps broken discoveries out of merged models", async () => {
+		const { registry } = createRegistry({
+			auth: { openai: { type: "api_key", key: "sk-test" } },
+		});
+
+		await withStubbedFetch(
+			(async () => {
+				throw new Error("boom");
+			}) as typeof globalThis.fetch,
+			async () => {
+				const results = await registry.prepareDiscoveryRefresh({
+					providers: ["openai"],
+				});
+				assert.equal(results.length, 1);
+				assert.equal(results[0].source, "error");
+				assert.match(results[0].error ?? "", /boom/);
+				assert.equal(
+					registry
+						.getAllWithDiscovered()
+						.some(
+							(model) =>
+								model.provider === "openai" && model.id === "broken-model",
+						),
+					false,
+				);
+			},
+		);
 	});
 });
 
@@ -175,7 +378,6 @@ describe("Discovery TTL configuration", () => {
 	it("unknown providers get default TTL", () => {
 		const customTTL = getDefaultTTL("my-custom-provider");
 		const defaultTTL = getDefaultTTL("default");
-		// Unknown providers should get the same TTL as the explicit "default" key
 		assert.equal(customTTL, defaultTTL);
 	});
 });

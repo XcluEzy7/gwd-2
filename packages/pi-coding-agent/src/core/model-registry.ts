@@ -4,8 +4,8 @@
 
 import {
 	type Api,
-	applyCapabilityPatches,
 	type AssistantMessageEventStream,
+	applyCapabilityPatches,
 	type Context,
 	getApiProvider,
 	getModels,
@@ -27,10 +27,27 @@ import { join } from "path";
 import { getAgentDir } from "../config.js";
 import type { AuthStorage } from "./auth-storage.js";
 import { ModelDiscoveryCache } from "./discovery-cache.js";
-import type { DiscoveredModel, DiscoveryResult } from "./model-discovery.js";
-import { getDefaultTTL, getDiscoverableProviders, getDiscoveryAdapter } from "./model-discovery.js";
-import { clearConfigValueCache, resolveConfigValue, resolveHeaders } from "./resolve-config-value.js";
 import { isLocalModel } from "./local-model-check.js";
+import type { DiscoveredModel, DiscoveryResult } from "./model-discovery.js";
+import {
+	getDefaultTTL,
+	getDiscoverableProviders,
+	getDiscoveryAdapter,
+} from "./model-discovery.js";
+import {
+	clearConfigValueCache,
+	resolveConfigValue,
+	resolveHeaders,
+} from "./resolve-config-value.js";
+
+export interface PrepareDiscoveryOptions {
+	providers?: string[];
+	force?: boolean;
+}
+
+export interface DiscoveryPreparationResult extends DiscoveryResult {
+	source: "fresh-cache" | "rediscovered" | "error" | "skipped";
+}
 
 const Ajv = (AjvModule as any).default || AjvModule;
 const ajv = new Ajv();
@@ -53,12 +70,23 @@ const OpenAICompletionsCompatSchema = Type.Object({
 	supportsDeveloperRole: Type.Optional(Type.Boolean()),
 	supportsReasoningEffort: Type.Optional(Type.Boolean()),
 	supportsUsageInStreaming: Type.Optional(Type.Boolean()),
-	maxTokensField: Type.Optional(Type.Union([Type.Literal("max_completion_tokens"), Type.Literal("max_tokens")])),
+	maxTokensField: Type.Optional(
+		Type.Union([
+			Type.Literal("max_completion_tokens"),
+			Type.Literal("max_tokens"),
+		]),
+	),
 	requiresToolResultName: Type.Optional(Type.Boolean()),
 	requiresAssistantAfterToolResult: Type.Optional(Type.Boolean()),
 	requiresThinkingAsText: Type.Optional(Type.Boolean()),
 	requiresMistralToolIds: Type.Optional(Type.Boolean()),
-	thinkingFormat: Type.Optional(Type.Union([Type.Literal("openai"), Type.Literal("zai"), Type.Literal("qwen")])),
+	thinkingFormat: Type.Optional(
+		Type.Union([
+			Type.Literal("openai"),
+			Type.Literal("zai"),
+			Type.Literal("qwen"),
+		]),
+	),
 	openRouterRouting: Type.Optional(OpenRouterRoutingSchema),
 	vercelGatewayRouting: Type.Optional(VercelGatewayRoutingSchema),
 });
@@ -67,7 +95,10 @@ const OpenAIResponsesCompatSchema = Type.Object({
 	// Reserved for future use
 });
 
-const OpenAICompatSchema = Type.Union([OpenAICompletionsCompatSchema, OpenAIResponsesCompatSchema]);
+const OpenAICompatSchema = Type.Union([
+	OpenAICompletionsCompatSchema,
+	OpenAIResponsesCompatSchema,
+]);
 
 // Schema for custom model definition
 // Most fields are optional with sensible defaults for local models (Ollama, LM Studio, etc.)
@@ -77,7 +108,9 @@ const ModelDefinitionSchema = Type.Object({
 	api: Type.Optional(Type.String({ minLength: 1 })),
 	baseUrl: Type.Optional(Type.String({ minLength: 1 })),
 	reasoning: Type.Optional(Type.Boolean()),
-	input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),
+	input: Type.Optional(
+		Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")])),
+	),
 	cost: Type.Optional(
 		Type.Object({
 			input: Type.Number(),
@@ -96,7 +129,9 @@ const ModelDefinitionSchema = Type.Object({
 const ModelOverrideSchema = Type.Object({
 	name: Type.Optional(Type.String({ minLength: 1 })),
 	reasoning: Type.Optional(Type.Boolean()),
-	input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),
+	input: Type.Optional(
+		Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")])),
+	),
 	cost: Type.Optional(
 		Type.Object({
 			input: Type.Optional(Type.Number()),
@@ -120,7 +155,9 @@ const ProviderConfigSchema = Type.Object({
 	headers: Type.Optional(Type.Record(Type.String(), Type.String())),
 	authHeader: Type.Optional(Type.Boolean()),
 	models: Type.Optional(Type.Array(ModelDefinitionSchema)),
-	modelOverrides: Type.Optional(Type.Record(Type.String(), ModelOverrideSchema)),
+	modelOverrides: Type.Optional(
+		Type.Record(Type.String(), ModelOverrideSchema),
+	),
 });
 
 const ModelsConfigSchema = Type.Object({
@@ -160,22 +197,35 @@ function mergeCompat(
 ): Model<Api>["compat"] | undefined {
 	if (!overrideCompat) return baseCompat;
 
-	const base = baseCompat as OpenAICompletionsCompat | OpenAIResponsesCompat | undefined;
-	const override = overrideCompat as OpenAICompletionsCompat | OpenAIResponsesCompat;
-	const merged = { ...base, ...override } as OpenAICompletionsCompat | OpenAIResponsesCompat;
+	const base = baseCompat as
+		| OpenAICompletionsCompat
+		| OpenAIResponsesCompat
+		| undefined;
+	const override = overrideCompat as
+		| OpenAICompletionsCompat
+		| OpenAIResponsesCompat;
+	const merged = { ...base, ...override } as
+		| OpenAICompletionsCompat
+		| OpenAIResponsesCompat;
 
 	const baseCompletions = base as OpenAICompletionsCompat | undefined;
 	const overrideCompletions = override as OpenAICompletionsCompat;
 	const mergedCompletions = merged as OpenAICompletionsCompat;
 
-	if (baseCompletions?.openRouterRouting || overrideCompletions.openRouterRouting) {
+	if (
+		baseCompletions?.openRouterRouting ||
+		overrideCompletions.openRouterRouting
+	) {
 		mergedCompletions.openRouterRouting = {
 			...baseCompletions?.openRouterRouting,
 			...overrideCompletions.openRouterRouting,
 		};
 	}
 
-	if (baseCompletions?.vercelGatewayRouting || overrideCompletions.vercelGatewayRouting) {
+	if (
+		baseCompletions?.vercelGatewayRouting ||
+		overrideCompletions.vercelGatewayRouting
+	) {
 		mergedCompletions.vercelGatewayRouting = {
 			...baseCompletions?.vercelGatewayRouting,
 			...overrideCompletions.vercelGatewayRouting,
@@ -189,14 +239,19 @@ function mergeCompat(
  * Deep merge a model override into a model.
  * Handles nested objects (cost, compat) by merging rather than replacing.
  */
-function applyModelOverride(model: Model<Api>, override: ModelOverride): Model<Api> {
+function applyModelOverride(
+	model: Model<Api>,
+	override: ModelOverride,
+): Model<Api> {
 	const result = { ...model };
 
 	// Simple field overrides
 	if (override.name !== undefined) result.name = override.name;
 	if (override.reasoning !== undefined) result.reasoning = override.reasoning;
-	if (override.input !== undefined) result.input = override.input as ("text" | "image")[];
-	if (override.contextWindow !== undefined) result.contextWindow = override.contextWindow;
+	if (override.input !== undefined)
+		result.input = override.input as ("text" | "image")[];
+	if (override.contextWindow !== undefined)
+		result.contextWindow = override.contextWindow;
 	if (override.maxTokens !== undefined) result.maxTokens = override.maxTokens;
 
 	// Merge cost (partial override)
@@ -212,7 +267,9 @@ function applyModelOverride(model: Model<Api>, override: ModelOverride): Model<A
 	// Merge headers
 	if (override.headers) {
 		const resolvedHeaders = resolveHeaders(override.headers);
-		result.headers = resolvedHeaders ? { ...model.headers, ...resolvedHeaders } : model.headers;
+		result.headers = resolvedHeaders
+			? { ...model.headers, ...resolvedHeaders }
+			: model.headers;
 	}
 
 	// Deep merge compat
@@ -220,7 +277,6 @@ function applyModelOverride(model: Model<Api>, override: ModelOverride): Model<A
 
 	return result;
 }
-
 
 /**
  * Model registry - loads and manages models, resolves API keys via AuthStorage.
@@ -235,9 +291,13 @@ export class ModelRegistry {
 
 	constructor(
 		readonly authStorage: AuthStorage,
-		readonly modelsJsonPath: string | undefined = join(getAgentDir(), "models.json"),
+		readonly modelsJsonPath: string | undefined = join(
+			getAgentDir(),
+			"models.json",
+		),
+		options?: { discoveryCache?: ModelDiscoveryCache },
 	) {
-		this.discoveryCache = new ModelDiscoveryCache();
+		this.discoveryCache = options?.discoveryCache ?? new ModelDiscoveryCache();
 
 		// Set up fallback resolver for custom provider API keys
 		this.authStorage.setFallbackResolver((provider) => {
@@ -249,7 +309,10 @@ export class ModelRegistry {
 		});
 
 		// Refresh models when credentials change (e.g., OAuth token refresh with new model limits)
-		this.authStorage.onCredentialChange(() => this.refresh());
+		this.authStorage.onCredentialChange(() => {
+			this.refresh();
+			void this.prepareDiscoveryRefresh({ force: true });
+		});
 
 		// Load models
 		this.loadModels();
@@ -287,7 +350,9 @@ export class ModelRegistry {
 			overrides,
 			modelOverrides,
 			error,
-		} = this.modelsJsonPath ? this.loadCustomModels(this.modelsJsonPath) : emptyCustomModelsResult();
+		} = this.modelsJsonPath
+			? this.loadCustomModels(this.modelsJsonPath)
+			: emptyCustomModelsResult();
 
 		if (error) {
 			this.loadError = error;
@@ -330,7 +395,9 @@ export class ModelRegistry {
 					model = {
 						...model,
 						baseUrl: providerOverride.baseUrl ?? model.baseUrl,
-						headers: resolvedHeaders ? { ...model.headers, ...resolvedHeaders } : model.headers,
+						headers: resolvedHeaders
+							? { ...model.headers, ...resolvedHeaders }
+							: model.headers,
 					};
 				}
 
@@ -346,10 +413,15 @@ export class ModelRegistry {
 	}
 
 	/** Merge custom models into built-in list by provider+id (custom wins on conflicts). */
-	private mergeCustomModels(builtInModels: Model<Api>[], customModels: Model<Api>[]): Model<Api>[] {
+	private mergeCustomModels(
+		builtInModels: Model<Api>[],
+		customModels: Model<Api>[],
+	): Model<Api>[] {
 		const merged = [...builtInModels];
 		for (const customModel of customModels) {
-			const existingIndex = merged.findIndex((m) => m.provider === customModel.provider && m.id === customModel.id);
+			const existingIndex = merged.findIndex(
+				(m) => m.provider === customModel.provider && m.id === customModel.id,
+			);
 			if (existingIndex >= 0) {
 				merged[existingIndex] = customModel;
 			} else {
@@ -372,9 +444,12 @@ export class ModelRegistry {
 			const validate = ajv.getSchema("ModelsConfig")!;
 			if (!validate(config)) {
 				const errors =
-					validate.errors?.map((e: any) => `  - ${e.instancePath || "root"}: ${e.message}`).join("\n") ||
-					"Unknown schema error";
-				return emptyCustomModelsResult(`Invalid models.json schema:\n${errors}\n\nFile: ${modelsJsonPath}`);
+					validate.errors
+						?.map((e: any) => `  - ${e.instancePath || "root"}: ${e.message}`)
+						.join("\n") || "Unknown schema error";
+				return emptyCustomModelsResult(
+					`Invalid models.json schema:\n${errors}\n\nFile: ${modelsJsonPath}`,
+				);
 			}
 
 			// Additional validation
@@ -383,9 +458,15 @@ export class ModelRegistry {
 			const overrides = new Map<string, ProviderOverride>();
 			const modelOverrides = new Map<string, Map<string, ModelOverride>>();
 
-			for (const [providerName, providerConfig] of Object.entries(config.providers)) {
+			for (const [providerName, providerConfig] of Object.entries(
+				config.providers,
+			)) {
 				// Apply provider-level baseUrl/headers/apiKey override to built-in models when configured.
-				if (providerConfig.baseUrl || providerConfig.headers || providerConfig.apiKey) {
+				if (
+					providerConfig.baseUrl ||
+					providerConfig.headers ||
+					providerConfig.apiKey
+				) {
 					overrides.set(providerName, {
 						baseUrl: providerConfig.baseUrl,
 						headers: providerConfig.headers,
@@ -399,14 +480,24 @@ export class ModelRegistry {
 				}
 
 				if (providerConfig.modelOverrides) {
-					modelOverrides.set(providerName, new Map(Object.entries(providerConfig.modelOverrides)));
+					modelOverrides.set(
+						providerName,
+						new Map(Object.entries(providerConfig.modelOverrides)),
+					);
 				}
 			}
 
-			return { models: this.parseModels(config), overrides, modelOverrides, error: undefined };
+			return {
+				models: this.parseModels(config),
+				overrides,
+				modelOverrides,
+				error: undefined,
+			};
 		} catch (error) {
 			if (error instanceof SyntaxError) {
-				return emptyCustomModelsResult(`Failed to parse models.json: ${error.message}\n\nFile: ${modelsJsonPath}`);
+				return emptyCustomModelsResult(
+					`Failed to parse models.json: ${error.message}\n\nFile: ${modelsJsonPath}`,
+				);
 			}
 			return emptyCustomModelsResult(
 				`Failed to load models.json: ${error instanceof Error ? error.message : error}\n\nFile: ${modelsJsonPath}`,
@@ -415,24 +506,33 @@ export class ModelRegistry {
 	}
 
 	private validateConfig(config: ModelsConfig): void {
-		for (const [providerName, providerConfig] of Object.entries(config.providers)) {
+		for (const [providerName, providerConfig] of Object.entries(
+			config.providers,
+		)) {
 			const hasProviderApi = !!providerConfig.api;
 			const models = providerConfig.models ?? [];
 			const hasModelOverrides =
-				providerConfig.modelOverrides && Object.keys(providerConfig.modelOverrides).length > 0;
+				providerConfig.modelOverrides &&
+				Object.keys(providerConfig.modelOverrides).length > 0;
 
 			if (models.length === 0) {
 				// Override-only config: needs baseUrl OR modelOverrides (or both)
 				if (!providerConfig.baseUrl && !hasModelOverrides) {
-					throw new Error(`Provider ${providerName}: must specify "baseUrl", "modelOverrides", or "models".`);
+					throw new Error(
+						`Provider ${providerName}: must specify "baseUrl", "modelOverrides", or "models".`,
+					);
 				}
 			} else {
 				// Custom models are merged into provider models and require endpoint + auth.
 				if (!providerConfig.baseUrl) {
-					throw new Error(`Provider ${providerName}: "baseUrl" is required when defining custom models.`);
+					throw new Error(
+						`Provider ${providerName}: "baseUrl" is required when defining custom models.`,
+					);
 				}
 				if (!providerConfig.apiKey) {
-					throw new Error(`Provider ${providerName}: "apiKey" is required when defining custom models.`);
+					throw new Error(
+						`Provider ${providerName}: "apiKey" is required when defining custom models.`,
+					);
 				}
 			}
 
@@ -445,12 +545,17 @@ export class ModelRegistry {
 					);
 				}
 
-				if (!modelDef.id) throw new Error(`Provider ${providerName}: model missing "id"`);
+				if (!modelDef.id)
+					throw new Error(`Provider ${providerName}: model missing "id"`);
 				// Validate contextWindow/maxTokens only if provided (they have defaults)
 				if (modelDef.contextWindow !== undefined && modelDef.contextWindow <= 0)
-					throw new Error(`Provider ${providerName}, model ${modelDef.id}: invalid contextWindow`);
+					throw new Error(
+						`Provider ${providerName}, model ${modelDef.id}: invalid contextWindow`,
+					);
 				if (modelDef.maxTokens !== undefined && modelDef.maxTokens <= 0)
-					throw new Error(`Provider ${providerName}, model ${modelDef.id}: invalid maxTokens`);
+					throw new Error(
+						`Provider ${providerName}, model ${modelDef.id}: invalid maxTokens`,
+					);
 			}
 		}
 	}
@@ -458,7 +563,9 @@ export class ModelRegistry {
 	private parseModels(config: ModelsConfig): Model<Api>[] {
 		const models: Model<Api>[] = [];
 
-		for (const [providerName, providerConfig] of Object.entries(config.providers)) {
+		for (const [providerName, providerConfig] of Object.entries(
+			config.providers,
+		)) {
 			const modelDefs = providerConfig.models ?? [];
 			if (modelDefs.length === 0) continue; // Override-only, no custom models
 
@@ -475,7 +582,10 @@ export class ModelRegistry {
 				// Resolve env vars and shell commands in header values
 				const providerHeaders = resolveHeaders(providerConfig.headers);
 				const modelHeaders = resolveHeaders(modelDef.headers);
-				let headers = providerHeaders || modelHeaders ? { ...providerHeaders, ...modelHeaders } : undefined;
+				let headers =
+					providerHeaders || modelHeaders
+						? { ...providerHeaders, ...modelHeaders }
+						: undefined;
 
 				// If authHeader is true, add Authorization header with resolved API key
 				if (providerConfig.authHeader && providerConfig.apiKey) {
@@ -487,7 +597,12 @@ export class ModelRegistry {
 
 				// Provider baseUrl is required when custom models are defined.
 				// Individual models can override it with modelDef.baseUrl.
-				const defaultCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+				const defaultCost = {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+				};
 				models.push({
 					id: modelDef.id,
 					name: modelDef.name ?? modelDef.id,
@@ -560,10 +675,15 @@ export class ModelRegistry {
 	 * Returns undefined for externalCli/none providers (no key needed).
 	 * @param sessionId - Optional session ID for sticky credential selection
 	 */
-	async getApiKey(model: Model<Api>, sessionId?: string): Promise<string | undefined> {
+	async getApiKey(
+		model: Model<Api>,
+		sessionId?: string,
+	): Promise<string | undefined> {
 		const authMode = this.getProviderAuthMode(model.provider);
 		if (authMode === "externalCli" || authMode === "none") return undefined;
-		return this.authStorage.getApiKey(model.provider, sessionId, { baseUrl: model.baseUrl });
+		return this.authStorage.getApiKey(model.provider, sessionId, {
+			baseUrl: model.baseUrl,
+		});
 	}
 
 	/**
@@ -571,7 +691,10 @@ export class ModelRegistry {
 	 * Returns undefined for externalCli/none providers (no key needed).
 	 * @param sessionId - Optional session ID for sticky credential selection
 	 */
-	async getApiKeyForProvider(provider: string, sessionId?: string): Promise<string | undefined> {
+	async getApiKeyForProvider(
+		provider: string,
+		sessionId?: string,
+	): Promise<string | undefined> {
 		const authMode = this.getProviderAuthMode(provider);
 		if (authMode === "externalCli" || authMode === "none") return undefined;
 		return this.authStorage.getApiKey(provider, sessionId);
@@ -613,7 +736,10 @@ export class ModelRegistry {
 		this.refresh();
 	}
 
-	private applyProviderConfig(providerName: string, config: ProviderConfigInput): void {
+	private applyProviderConfig(
+		providerName: string,
+		config: ProviderConfigInput,
+	): void {
 		// Register OAuth provider if provided
 		if (config.oauth) {
 			// Ensure the OAuth provider ID matches the provider name
@@ -626,19 +752,30 @@ export class ModelRegistry {
 
 		if (config.streamSimple) {
 			if (!config.api) {
-				throw new Error(`Provider ${providerName}: "api" is required when registering streamSimple.`);
+				throw new Error(
+					`Provider ${providerName}: "api" is required when registering streamSimple.`,
+				);
 			}
 			const rawStreamSimple = config.streamSimple;
 			const authMode = config.authMode ?? "apiKey";
 
 			// Keyless providers never see apiKey in options — enforced at registration,
 			// not by convention. Prevents undefined from reaching any handler.
-			const streamSimple = (authMode === "externalCli" || authMode === "none")
-				? ((model: Model<Api>, context: Context, options?: SimpleStreamOptions) => {
-						const { apiKey: _, ...opts } = options ?? {};
-						return rawStreamSimple(model, context, opts as SimpleStreamOptions);
-					})
-				: rawStreamSimple;
+			const streamSimple =
+				authMode === "externalCli" || authMode === "none"
+					? (
+							model: Model<Api>,
+							context: Context,
+							options?: SimpleStreamOptions,
+						) => {
+							const { apiKey: _, ...opts } = options ?? {};
+							return rawStreamSimple(
+								model,
+								context,
+								opts as SimpleStreamOptions,
+							);
+						}
+					: rawStreamSimple;
 
 			// Guard: if there's already a handler registered for this API, wrap
 			// the new one so it only fires for models from this provider and
@@ -647,7 +784,11 @@ export class ModelRegistry {
 			// the built-in Anthropic stream handler (#2536).
 			const existingProvider = getApiProvider(config.api as Api);
 			const scopedStream = existingProvider
-				? (model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream => {
+				? (
+						model: Model<Api>,
+						context: Context,
+						options?: SimpleStreamOptions,
+					): AssistantMessageEventStream => {
 						if (model.provider === providerName) {
 							return streamSimple(model, context, options);
 						}
@@ -655,12 +796,23 @@ export class ModelRegistry {
 					}
 				: streamSimple;
 
-			const newFullStream = (model: Model<Api>, context: Context, options?: SimpleStreamOptions) =>
-				scopedStream(model, context, options as SimpleStreamOptions);
+			const newFullStream = (
+				model: Model<Api>,
+				context: Context,
+				options?: SimpleStreamOptions,
+			) => scopedStream(model, context, options as SimpleStreamOptions);
 			const scopedFullStream = existingProvider
-				? (model: Model<Api>, context: Context, options?: Record<string, unknown>) => {
+				? (
+						model: Model<Api>,
+						context: Context,
+						options?: Record<string, unknown>,
+					) => {
 						if (model.provider === providerName) {
-							return newFullStream(model, context, options as SimpleStreamOptions);
+							return newFullStream(
+								model,
+								context,
+								options as SimpleStreamOptions,
+							);
 						}
 						return existingProvider.stream(model, context, options);
 					}
@@ -687,25 +839,35 @@ export class ModelRegistry {
 
 			// Validate required fields
 			if (!config.baseUrl) {
-				throw new Error(`Provider ${providerName}: "baseUrl" is required when defining models.`);
+				throw new Error(
+					`Provider ${providerName}: "baseUrl" is required when defining models.`,
+				);
 			}
-			const authMode = config.authMode ?? (config.oauth ? "oauth" : config.apiKey ? "apiKey" : "apiKey");
+			const authMode =
+				config.authMode ??
+				(config.oauth ? "oauth" : config.apiKey ? "apiKey" : "apiKey");
 			if (authMode === "apiKey" && !config.apiKey && !config.oauth) {
 				throw new Error(
 					`Provider ${providerName}: "apiKey" or "oauth" is required when authMode is "apiKey" (the default). ` +
-					`Set authMode to "externalCli" or "none" for keyless providers.`,
+						`Set authMode to "externalCli" or "none" for keyless providers.`,
 				);
 			}
-			if ((authMode === "externalCli" || authMode === "none") && !config.streamSimple) {
+			if (
+				(authMode === "externalCli" || authMode === "none") &&
+				!config.streamSimple
+			) {
 				throw new Error(
 					`Provider ${providerName}: "streamSimple" is required when authMode is "${authMode}". ` +
-					`Keyless providers must supply their own stream handler.`,
+						`Keyless providers must supply their own stream handler.`,
 				);
 			}
-			if ((authMode === "externalCli" || authMode === "none") && config.apiKey) {
+			if (
+				(authMode === "externalCli" || authMode === "none") &&
+				config.apiKey
+			) {
 				throw new Error(
 					`Provider ${providerName}: "apiKey" cannot be set when authMode is "${authMode}". ` +
-					`Keyless providers should not provide API key credentials.`,
+						`Keyless providers should not provide API key credentials.`,
 				);
 			}
 
@@ -713,13 +875,18 @@ export class ModelRegistry {
 			for (const modelDef of config.models) {
 				const api = modelDef.api || config.api;
 				if (!api) {
-					throw new Error(`Provider ${providerName}, model ${modelDef.id}: no "api" specified.`);
+					throw new Error(
+						`Provider ${providerName}, model ${modelDef.id}: no "api" specified.`,
+					);
 				}
 
 				// Merge headers
 				const providerHeaders = resolveHeaders(config.headers);
 				const modelHeaders = resolveHeaders(modelDef.headers);
-				let headers = providerHeaders || modelHeaders ? { ...providerHeaders, ...modelHeaders } : undefined;
+				let headers =
+					providerHeaders || modelHeaders
+						? { ...providerHeaders, ...modelHeaders }
+						: undefined;
 
 				// If authHeader is true, add Authorization header
 				if (config.authHeader && config.apiKey) {
@@ -763,51 +930,72 @@ export class ModelRegistry {
 				return {
 					...m,
 					baseUrl: config.baseUrl ?? m.baseUrl,
-					headers: resolvedHeaders ? { ...m.headers, ...resolvedHeaders } : m.headers,
+					headers: resolvedHeaders
+						? { ...m.headers, ...resolvedHeaders }
+						: m.headers,
 				};
 			});
 		}
 	}
 
 	/**
-	 * Discover models from all providers that support discovery.
-	 * Results are cached and merged into the registry (never overrides existing models).
+	 * Refresh base registrations, then prepare discovery-backed models for callers.
+	 * Fresh cache entries stay cheap; stale or forced entries rediscover.
 	 */
-	async discoverModels(providers?: string[]): Promise<DiscoveryResult[]> {
-		const targetProviders = providers ?? getDiscoverableProviders();
-		const results: DiscoveryResult[] = [];
+	async prepareDiscoveryRefresh(
+		options: PrepareDiscoveryOptions = {},
+	): Promise<DiscoveryPreparationResult[]> {
+		this.refresh();
+
+		const targetProviders = options.providers ?? getDiscoverableProviders();
+		const results: DiscoveryPreparationResult[] = [];
 
 		for (const providerName of targetProviders) {
 			const adapter = getDiscoveryAdapter(providerName);
-			if (!adapter.supportsDiscovery) continue;
+			if (!adapter.supportsDiscovery) {
+				results.push({
+					provider: providerName,
+					models: [],
+					fetchedAt: Date.now(),
+					source: "skipped",
+				});
+				continue;
+			}
 
-			// Skip if cache is still fresh
-			if (!this.discoveryCache.isStale(providerName)) {
+			if (!options.force && !this.discoveryCache.isStale(providerName)) {
 				const cached = this.discoveryCache.get(providerName);
 				if (cached) {
 					results.push({
 						provider: providerName,
 						models: cached.models,
 						fetchedAt: cached.fetchedAt,
+						source: "fresh-cache",
 					});
 					continue;
 				}
 			}
 
+			if (!this.isProviderRequestReady(providerName)) {
+				results.push({
+					provider: providerName,
+					models: [],
+					fetchedAt: Date.now(),
+					source: "skipped",
+				});
+				continue;
+			}
+
 			try {
 				const apiKey = await this.authStorage.getApiKey(providerName);
-				if (!apiKey && !this.isProviderRequestReady(providerName)) continue;
-
-				// Resolve baseUrl from registered provider config (for custom providers like ollama-cloud)
 				const config = this.registeredProviders.get(providerName);
 				const baseUrl = config?.baseUrl ?? undefined;
-
 				const models = await adapter.fetchModels(apiKey ?? "", baseUrl);
 				this.discoveryCache.set(providerName, models);
 				results.push({
 					provider: providerName,
 					models,
 					fetchedAt: Date.now(),
+					source: "rediscovered",
 				});
 			} catch (error) {
 				results.push({
@@ -815,13 +1003,23 @@ export class ModelRegistry {
 					models: [],
 					fetchedAt: Date.now(),
 					error: error instanceof Error ? error.message : String(error),
+					source: "error",
 				});
 			}
 		}
 
-		// Convert and merge discovered models, then apply capability patches
-		this.discoveredModels = applyCapabilityPatches(this.convertDiscoveredModels(results));
+		this.discoveredModels = applyCapabilityPatches(
+			this.convertDiscoveredModels(results),
+		);
 		return results;
+	}
+
+	/**
+	 * Discover models from all providers that support discovery.
+	 * Results are cached and merged into the registry (never overrides existing models).
+	 */
+	async discoverModels(providers?: string[]): Promise<DiscoveryResult[]> {
+		return this.prepareDiscoveryRefresh({ providers });
 	}
 
 	/**
@@ -829,8 +1027,12 @@ export class ModelRegistry {
 	 * Discovered models are appended but never override existing models.
 	 */
 	getAllWithDiscovered(): Model<Api>[] {
-		const existingIds = new Set(this.models.map((m) => `${m.provider}/${m.id}`));
-		const unique = this.discoveredModels.filter((m) => !existingIds.has(`${m.provider}/${m.id}`));
+		const existingIds = new Set(
+			this.models.map((m) => `${m.provider}/${m.id}`),
+		);
+		const unique = this.discoveredModels.filter(
+			(m) => !existingIds.has(`${m.provider}/${m.id}`),
+		);
 		return [...this.models, ...unique];
 	}
 
@@ -838,7 +1040,9 @@ export class ModelRegistry {
 	 * Check if a model was added via discovery (not built-in or custom).
 	 */
 	isDiscovered(model: Model<Api>): boolean {
-		return this.discoveredModels.some((m) => m.provider === model.provider && m.id === model.id);
+		return this.discoveredModels.some(
+			(m) => m.provider === model.provider && m.id === model.id,
+		);
 	}
 
 	/**
@@ -904,7 +1108,11 @@ export interface ProviderConfigInput {
 	baseUrl?: string;
 	apiKey?: string;
 	api?: Api;
-	streamSimple?: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream;
+	streamSimple?: (
+		model: Model<Api>,
+		context: Context,
+		options?: SimpleStreamOptions,
+	) => AssistantMessageEventStream;
 	headers?: Record<string, string>;
 	authHeader?: boolean;
 	/** OAuth provider for /login support */
@@ -916,7 +1124,12 @@ export interface ProviderConfigInput {
 		baseUrl?: string;
 		reasoning: boolean;
 		input: ("text" | "image")[];
-		cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+		cost: {
+			input: number;
+			output: number;
+			cacheRead: number;
+			cacheWrite: number;
+		};
 		contextWindow: number;
 		maxTokens: number;
 		headers?: Record<string, string>;
