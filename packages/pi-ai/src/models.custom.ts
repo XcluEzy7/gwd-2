@@ -11,6 +11,7 @@
 //   2. Add its API key mapping to env-api-keys.ts.
 //   3. Add its provider name to KnownProvider in types.ts (if not already there).
 
+import { getProviderRuntimeBaseUrl } from "../../../src/resources/extensions/shared/provider-contracts.js";
 import type { Model } from "./types.js";
 
 export const CUSTOM_MODELS = {
@@ -174,7 +175,7 @@ export const CUSTOM_MODELS = {
 	// GLM-5.1 is the latest GLM model from Zhipu AI, not yet in models.dev.
 	// Uses the Z.AI Coding Plan endpoint (OpenAI-compatible).
 	// Ref: https://docs.z.ai/devpack/using5.1
-	"zai": {
+	zai: {
 		"glm-5.1": {
 			id: "glm-5.1",
 			name: "GLM-5.1",
@@ -204,7 +205,7 @@ export const CUSTOM_MODELS = {
 			name: "Qwen3 32B (Ollama Cloud)",
 			api: "ollama-chat",
 			provider: "ollama-cloud",
-			baseUrl: "https://ollama.com/api",
+			baseUrl: getProviderRuntimeBaseUrl("ollama-cloud"),
 			reasoning: false,
 			input: ["text"],
 			cost: {

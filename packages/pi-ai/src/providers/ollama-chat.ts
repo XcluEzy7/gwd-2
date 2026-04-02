@@ -6,6 +6,10 @@
  * to https://ollama.com/api with an API key.
  */
 
+import {
+	getProviderRuntimeBaseUrlForCredential,
+	shouldSendAuthorizationHeader,
+} from "../../../../src/resources/extensions/shared/provider-contracts.js";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { calculateCost } from "../models.js";
 import type {
@@ -24,9 +28,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { buildBaseOptions } from "./simple-options.js";
 
-const OLLAMA_CLOUD_BASE_URL = "https://ollama.com/api";
 const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
-const OLLAMA_SIGNIN_SENTINEL = "ollama-signin";
 
 interface OllamaChatOptions extends StreamOptions {
 	keepAlive?: string;
@@ -41,9 +43,8 @@ function getLocalOllamaHost(): string {
 }
 
 function getBaseUrl(model: Model<"ollama-chat">, apiKey?: string): string {
-	if (apiKey === OLLAMA_SIGNIN_SENTINEL) return getLocalOllamaHost();
 	if (model.baseUrl) return model.baseUrl;
-	return OLLAMA_CLOUD_BASE_URL;
+	return getProviderRuntimeBaseUrlForCredential("ollama-cloud", apiKey);
 }
 
 function buildHeaders(
@@ -53,12 +54,7 @@ function buildHeaders(
 	const headers: Record<string, string> = {
 		"Content-Type": "application/json",
 	};
-	if (
-		apiKey &&
-		apiKey !== "ollama" &&
-		apiKey !== "local-no-key-needed" &&
-		apiKey !== OLLAMA_SIGNIN_SENTINEL
-	) {
+	if (shouldSendAuthorizationHeader("ollama-cloud", apiKey)) {
 		headers.Authorization = `Bearer ${apiKey}`;
 	}
 	if (model.headers) {

@@ -3,6 +3,12 @@
  * Each adapter implements ProviderDiscoveryAdapter to fetch models from provider APIs.
  */
 
+import {
+	getProviderDiscoveryTarget,
+	getProviderDiscoveryTtl,
+	shouldSendAuthorizationHeader,
+} from "../../../../src/resources/extensions/shared/provider-contracts.js";
+
 export interface DiscoveredModel {
 	id: string;
 	name?: string;
@@ -10,7 +16,12 @@ export interface DiscoveredModel {
 	maxTokens?: number;
 	reasoning?: boolean;
 	input?: ("text" | "image")[];
-	cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	cost?: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+	};
 }
 
 export interface DiscoveryResult {
@@ -29,7 +40,7 @@ export interface ProviderDiscoveryAdapter {
 /** Per-provider TTLs in milliseconds */
 export const DISCOVERY_TTLS: Record<string, number> = {
 	ollama: 5 * 60 * 1000, // 5 minutes (local, models change often)
-	"ollama-cloud": 60 * 60 * 1000, // 1 hour
+	"ollama-cloud": getProviderDiscoveryTtl("ollama-cloud") ?? 60 * 60 * 1000,
 	openai: 60 * 60 * 1000, // 1 hour
 	google: 60 * 60 * 1000, // 1 hour
 	openrouter: 60 * 60 * 1000, // 1 hour
@@ -40,7 +51,11 @@ export function getDefaultTTL(provider: string): number {
 	return DISCOVERY_TTLS[provider] ?? DISCOVERY_TTLS.default;
 }
 
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 5000): Promise<Response> {
+async function fetchWithTimeout(
+	url: string,
+	options: RequestInit = {},
+	timeoutMs = 5000,
+): Promise<Response> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), timeoutMs);
 	try {
@@ -52,25 +67,43 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
 
 // ─── OpenAI Adapter ──────────────────────────────────────────────────────────
 
-const OPENAI_EXCLUDED_PREFIXES = ["embedding", "tts", "dall-e", "whisper", "text-embedding", "davinci", "babbage"];
+const OPENAI_EXCLUDED_PREFIXES = [
+	"embedding",
+	"tts",
+	"dall-e",
+	"whisper",
+	"text-embedding",
+	"davinci",
+	"babbage",
+];
 
 class OpenAIDiscoveryAdapter implements ProviderDiscoveryAdapter {
 	provider = "openai";
 	supportsDiscovery = true;
 
-	async fetchModels(apiKey: string, baseUrl?: string): Promise<DiscoveredModel[]> {
+	async fetchModels(
+		apiKey: string,
+		baseUrl?: string,
+	): Promise<DiscoveredModel[]> {
 		const url = `${baseUrl ?? "https://api.openai.com"}/v1/models`;
 		const response = await fetchWithTimeout(url, {
 			headers: { Authorization: `Bearer ${apiKey}` },
 		});
 
 		if (!response.ok) {
-			throw new Error(`OpenAI models API returned ${response.status}: ${response.statusText}`);
+			throw new Error(
+				`OpenAI models API returned ${response.status}: ${response.statusText}`,
+			);
 		}
 
-		const data = (await response.json()) as { data: Array<{ id: string; owned_by?: string }> };
+		const data = (await response.json()) as {
+			data: Array<{ id: string; owned_by?: string }>;
+		};
 		return data.data
-			.filter((m) => !OPENAI_EXCLUDED_PREFIXES.some((prefix) => m.id.startsWith(prefix)))
+			.filter(
+				(m) =>
+					!OPENAI_EXCLUDED_PREFIXES.some((prefix) => m.id.startsWith(prefix)),
+			)
 			.map((m) => ({
 				id: m.id,
 				name: m.id,
@@ -85,16 +118,25 @@ class OllamaDiscoveryAdapter implements ProviderDiscoveryAdapter {
 	provider = "ollama";
 	supportsDiscovery = true;
 
-	async fetchModels(_apiKey: string, baseUrl?: string): Promise<DiscoveredModel[]> {
+	async fetchModels(
+		_apiKey: string,
+		baseUrl?: string,
+	): Promise<DiscoveredModel[]> {
 		const url = `${baseUrl ?? "http://localhost:11434"}/api/tags`;
 		const response = await fetchWithTimeout(url);
 
 		if (!response.ok) {
-			throw new Error(`Ollama tags API returned ${response.status}: ${response.statusText}`);
+			throw new Error(
+				`Ollama tags API returned ${response.status}: ${response.statusText}`,
+			);
 		}
 
 		const data = (await response.json()) as {
-			models: Array<{ name: string; size: number; details?: { parameter_size?: string } }>;
+			models: Array<{
+				name: string;
+				size: number;
+				details?: { parameter_size?: string };
+			}>;
 		};
 
 		return (data.models ?? []).map((m) => ({
@@ -111,14 +153,19 @@ class OpenRouterDiscoveryAdapter implements ProviderDiscoveryAdapter {
 	provider = "openrouter";
 	supportsDiscovery = true;
 
-	async fetchModels(apiKey: string, baseUrl?: string): Promise<DiscoveredModel[]> {
+	async fetchModels(
+		apiKey: string,
+		baseUrl?: string,
+	): Promise<DiscoveredModel[]> {
 		const url = `${baseUrl ?? "https://openrouter.ai"}/api/v1/models`;
 		const response = await fetchWithTimeout(url, {
 			headers: { Authorization: `Bearer ${apiKey}` },
 		});
 
 		if (!response.ok) {
-			throw new Error(`OpenRouter models API returned ${response.status}: ${response.statusText}`);
+			throw new Error(
+				`OpenRouter models API returned ${response.status}: ${response.statusText}`,
+			);
 		}
 
 		const data = (await response.json()) as {
@@ -160,12 +207,17 @@ class GoogleDiscoveryAdapter implements ProviderDiscoveryAdapter {
 	provider = "google";
 	supportsDiscovery = true;
 
-	async fetchModels(apiKey: string, baseUrl?: string): Promise<DiscoveredModel[]> {
+	async fetchModels(
+		apiKey: string,
+		baseUrl?: string,
+	): Promise<DiscoveredModel[]> {
 		const url = `${baseUrl ?? "https://generativelanguage.googleapis.com"}/v1beta/models?key=${apiKey}`;
 		const response = await fetchWithTimeout(url);
 
 		if (!response.ok) {
-			throw new Error(`Google models API returned ${response.status}: ${response.statusText}`);
+			throw new Error(
+				`Google models API returned ${response.status}: ${response.statusText}`,
+			);
 		}
 
 		const data = (await response.json()) as {
@@ -192,22 +244,25 @@ class GoogleDiscoveryAdapter implements ProviderDiscoveryAdapter {
 
 // ─── Ollama Cloud Adapter ───────────────────────────────────────────────────
 
-const OLLAMA_CLOUD_BASE_URL = "https://ollama.com/api";
-
 class OllamaCloudDiscoveryAdapter implements ProviderDiscoveryAdapter {
 	provider = "ollama-cloud";
 	supportsDiscovery = true;
 
-	async fetchModels(apiKey: string, baseUrl?: string): Promise<DiscoveredModel[]> {
-		const url = `${baseUrl ?? OLLAMA_CLOUD_BASE_URL}/v1/models`;
+	async fetchModels(
+		apiKey: string,
+		baseUrl?: string,
+	): Promise<DiscoveredModel[]> {
+		const url = baseUrl ?? getProviderDiscoveryTarget("ollama-cloud");
 		const headers: Record<string, string> = {};
-		if (apiKey && apiKey !== "ollama" && apiKey !== "local-no-key-needed") {
+		if (shouldSendAuthorizationHeader("ollama-cloud", apiKey)) {
 			headers.Authorization = `Bearer ${apiKey}`;
 		}
 		const response = await fetchWithTimeout(url, { headers });
 
 		if (!response.ok) {
-			throw new Error(`Ollama Cloud models API returned ${response.status}: ${response.statusText}`);
+			throw new Error(
+				`Ollama Cloud models API returned ${response.status}: ${response.statusText}`,
+			);
 		}
 
 		const data = (await response.json()) as {
@@ -257,7 +312,9 @@ const adapters: Record<string, ProviderDiscoveryAdapter> = {
 	mistral: new StaticDiscoveryAdapter("mistral"),
 };
 
-export function getDiscoveryAdapter(provider: string): ProviderDiscoveryAdapter {
+export function getDiscoveryAdapter(
+	provider: string,
+): ProviderDiscoveryAdapter {
 	return adapters[provider] ?? new StaticDiscoveryAdapter(provider);
 }
 

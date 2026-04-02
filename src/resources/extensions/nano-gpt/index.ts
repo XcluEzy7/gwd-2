@@ -13,6 +13,7 @@
  */
 
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
+import { getProviderRuntimeBaseUrl } from "../shared/provider-contracts.js";
 import { NANOGPT_SUBSCRIPTION_MODELS, NANOGPT_PAID_MODELS } from "./models.js";
 
 export default function nanoGpt(pi: ExtensionAPI) {
@@ -20,7 +21,7 @@ export default function nanoGpt(pi: ExtensionAPI) {
     pi.registerProvider("nano-gpt", {
         apiKey: "NANOGPT_API_KEY",
         api: "openai-completions",
-        baseUrl: "https://nano-gpt.com/api/subscription/v1",
+        baseUrl: getProviderRuntimeBaseUrl("nano-gpt"),
         models: NANOGPT_SUBSCRIPTION_MODELS,
     });
 
@@ -28,7 +29,7 @@ export default function nanoGpt(pi: ExtensionAPI) {
     pi.registerProvider("nano-gpt-payg", {
         apiKey: "NANOGPT_API_KEY",
         api: "openai-completions",
-        baseUrl: "https://nano-gpt.com/api/v1",
+        baseUrl: getProviderRuntimeBaseUrl("nano-gpt-payg"),
         models: NANOGPT_PAID_MODELS,
     });
 }
