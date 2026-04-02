@@ -42,6 +42,7 @@ import { SelectSubmenu, THINKING_DESCRIPTIONS } from "./components/settings-sele
 import { theme } from "./theme/theme.js";
 
 import type { TUI } from "@gsd/pi-tui";
+import type { ExtensionRunner } from "../../core/extensions/runner.js";
 
 // ---------------------------------------------------------------------------
 // Context interface — the subset of InteractiveMode needed by slash commands
@@ -73,6 +74,7 @@ export interface SlashCommandContext {
 	// Accessors
 	readonly sessionManager: SessionManager;
 	readonly settingsManager: SettingsManager;
+	readonly extensionRunner: ExtensionRunner | undefined;
 
 	// Footer
 	invalidateFooter(): void;
@@ -236,10 +238,22 @@ export async function dispatchSlashCommand(
 		return true;
 	}
 
+	// If input starts with "/" but no command matched, check if it's an extension command
+	if (text.startsWith("/")) {
+		const command = text.split(/\s/)[0];
+		const commandName = command.slice(1); // Remove the "/" prefix
+		
+		// Check if it's an extension command before showing error
+		if (ctx.extensionRunner?.getCommand(commandName)) {
+			return false; // Let session.prompt() handle extension commands
+		}
+		
+		ctx.showError(`Unknown command: ${command}. Type /help for available commands.`);
+		return true;
+	}
+
 	return false;
 }
-
-// ---------------------------------------------------------------------------
 // Individual command handlers
 // ---------------------------------------------------------------------------
 

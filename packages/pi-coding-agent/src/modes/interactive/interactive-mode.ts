@@ -2315,6 +2315,7 @@ export class InteractiveMode {
 			defaultEditor: this.defaultEditor,
 			sessionManager: this.sessionManager,
 			settingsManager: this.settingsManager,
+			extensionRunner: this.session.extensionRunner,
 			invalidateFooter: () => this.footer.invalidate(),
 			showStatus: (msg) => this.showStatus(msg),
 			showError: (msg) => this.showError(msg),
