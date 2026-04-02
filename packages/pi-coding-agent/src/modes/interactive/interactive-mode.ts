@@ -43,7 +43,6 @@ import {
 	visibleWidth,
 } from "@gsd/pi-tui";
 import { spawn, spawnSync } from "child_process";
-import { getProviderContract } from "../../../../../src/resources/extensions/shared/provider-contracts.js";
 import {
 	APP_NAME,
 	getAuthPath,
@@ -3890,13 +3889,9 @@ export class InteractiveMode {
 					// when the user cancels the login dialog.
 					const handleAsync = async () => {
 						if (mode === "login") {
-							// Route based on provider type
-							if (option.type === "ollama-cloud-signin") {
-								await this.showOllamaCloudLoginDialog(option.id);
-							} else if (option.type === "oauth") {
+							if (option.type === "oauth") {
 								await this.showLoginDialog(option.id);
 							} else {
-								// API-key provider
 								await this.showApiKeyLoginDialog(option.id, option.name);
 							}
 						} else {
@@ -3944,114 +3939,6 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector };
 		});
-	}
-
-	private async showOllamaCloudLoginDialog(providerId: string): Promise<void> {
-		// Show a selector for auth method: ollama signin or API key
-		this.showSelector((done) => {
-			const options = [
-				{ label: "Sign in with Ollama (browser)", value: "signin" },
-				{ label: "Paste API key", value: "api-key" },
-			];
-			let selectedIndex = 0;
-
-			const updateList = (container: Container) => {
-				container.clear();
-				for (let i = 0; i < options.length; i++) {
-					const opt = options[i]!;
-					const isSelected = i === selectedIndex;
-					const line = isSelected
-						? theme.fg("accent", `→ ${opt.label}`)
-						: `  ${opt.label}`;
-					container.addChild(new TruncatedText(line, 0, 0));
-				}
-			};
-
-			const container = new Container();
-			container.addChild(new DynamicBorder());
-			container.addChild(new Spacer(1));
-			container.addChild(
-				new Text(theme.bold("Sign in to Ollama Cloud:"), 0, 0),
-			);
-			container.addChild(new Spacer(1));
-			const listContainer = new Container();
-			container.addChild(listContainer);
-			updateList(listContainer);
-			container.addChild(new Spacer(1));
-			container.addChild(new DynamicBorder());
-
-			const kb = getEditorKeybindings();
-
-			const handleInput = (data: string): { consume: true } | undefined => {
-				if (kb.matches(data, "selectUp")) {
-					selectedIndex = Math.max(0, selectedIndex - 1);
-					updateList(listContainer);
-					this.ui.requestRender();
-					return { consume: true };
-				} else if (kb.matches(data, "selectDown")) {
-					selectedIndex = Math.min(options.length - 1, selectedIndex + 1);
-					updateList(listContainer);
-					this.ui.requestRender();
-					return { consume: true };
-				} else if (kb.matches(data, "selectConfirm")) {
-					unsubscribe();
-					done();
-					const selected = options[selectedIndex]!;
-					if (selected.value === "signin") {
-						this.runOllamaSignin().catch(() => {});
-					} else {
-						this.showApiKeyLoginDialog(providerId, "Ollama Cloud").catch(
-							() => {},
-						);
-					}
-					return { consume: true };
-				} else if (kb.matches(data, "selectCancel")) {
-					unsubscribe();
-					done();
-					this.ui.requestRender();
-					return { consume: true };
-				}
-				return undefined;
-			};
-
-			const unsubscribe = this.ui.addInputListener(handleInput);
-
-			return { component: container, focus: container };
-		});
-	}
-
-	private async runOllamaSignin(): Promise<void> {
-		this.showStatus("Running ollama signin...");
-		try {
-			const { execFile } = await import("node:child_process");
-			await new Promise<void>((resolve, reject) => {
-				const proc = execFile(
-					"ollama",
-					["signin"],
-					{ timeout: 120_000 },
-					(err) => {
-						if (err) reject(err);
-						else resolve();
-					},
-				);
-				proc.stdout?.on("data", (chunk) => {
-					const msg = chunk.toString().trim();
-					if (msg) this.showStatus(msg);
-				});
-			});
-			// Store placeholder credential
-			this.session.modelRegistry.authStorage.set("ollama-cloud", {
-				type: "api_key",
-				key: getProviderContract("ollama-cloud").sentinel!.signinValue,
-			});
-			this.session.modelRegistry.refresh();
-			await this.updateAvailableProviderCount();
-			this.showStatus("Signed in to Ollama Cloud via ollama signin");
-		} catch (error) {
-			this.showError(
-				`ollama signin failed: ${error instanceof Error ? error.message : String(error)}`,
-			);
-		}
 	}
 
 	private async showApiKeyLoginDialog(

@@ -198,7 +198,7 @@ export const CUSTOM_MODELS = {
 
 	// ─── Ollama Cloud ───────────────────────────────────────────────────────
 	// Native Ollama Cloud via ollama-chat provider (https://ollama.com/api).
-	// Requires OLLAMA_API_KEY or ollama signin. Discovery fetches live models.
+	// Requires OLLAMA_API_KEY. Discovery fetches live models.
 	"ollama-cloud": {
 		"qwen3:32b": {
 			id: "qwen3:32b",

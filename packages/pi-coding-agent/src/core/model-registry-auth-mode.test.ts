@@ -10,10 +10,10 @@ import {
 	type SimpleStreamOptions,
 } from "@gsd/pi-ai";
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
-import nanoGpt from "../../../../src/resources/extensions/nano-gpt/index.js";
-import { getProviderContract } from "../../../../src/resources/extensions/shared/provider-contracts.js";
-import type { AuthStorage } from "./auth-storage.js";
-import { ModelRegistry } from "./model-registry.js";
+import nanoGpt from "../../../../src/resources/extensions/nano-gpt/index.ts";
+import { getProviderContract } from "../../../../src/resources/extensions/shared/provider-contracts.ts";
+import type { AuthStorage } from "./auth-storage.ts";
+import { ModelRegistry } from "./model-registry.ts";
 
 function createRegistry(
 	hasAuthFn?: (provider: string) => boolean,

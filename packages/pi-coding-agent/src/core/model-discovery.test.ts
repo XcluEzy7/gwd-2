@@ -4,13 +4,13 @@ import {
 	getProviderContract,
 	getProviderDiscoveryTarget,
 	getProviderDiscoveryTtl,
-} from "../../../../src/resources/extensions/shared/provider-contracts.js";
+} from "../../../../src/resources/extensions/shared/provider-contracts.ts";
 import {
 	DISCOVERY_TTLS,
 	getDefaultTTL,
 	getDiscoverableProviders,
 	getDiscoveryAdapter,
-} from "./model-discovery.js";
+} from "./model-discovery.ts";
 
 // ─── getDiscoveryAdapter ─────────────────────────────────────────────────────
 
