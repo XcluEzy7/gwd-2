@@ -143,3 +143,41 @@ test("canonical gsd global-install scripts point at the updated install helpers"
   assert.match(justfile, /npm run gsd:install-global/, "just install-global uses canonical GSD script");
   assert.match(justfile, /npm run gsd:uninstall-global/, "just uninstall-global uses canonical GSD script");
 });
+
+test("justfile install-global includes pack validation before dev-link", () => {
+  const justfile = readFileSync(join(projectRoot, "justfile"), "utf8");
+
+  // install-global should depend on validate (which runs validate-pack)
+  const installGlobalMatch = justfile.match(/install-global[^:]*:\s*([^\n]+)/);
+  assert.ok(installGlobalMatch, "install-global recipe found");
+
+  const deps = installGlobalMatch[1];
+  assert.ok(deps.includes("validate"), "install-global depends on validate recipe");
+
+  // validate should run validate-pack
+  const validateMatch = justfile.match(/validate[^:]*:[^\n]*\n\s+npm run validate-pack/);
+  assert.ok(validateMatch, "validate recipe runs npm run validate-pack");
+});
+
+test("justfile separates runtime build from extra workspace builds", () => {
+  const justfile = readFileSync(join(projectRoot, "justfile"), "utf8");
+
+  // Should have build-extra-workspaces recipe
+  assert.match(justfile, /build-extra-workspaces/, "build-extra-workspaces recipe exists");
+
+  // The default build recipe should NOT include daemon/mcp-server/rpc-client
+  const buildMatch = justfile.match(/# Build the root CLI package[^\n]*\nbuild[^:]*:[^\n]*\n\s+npm run build/);
+  assert.ok(buildMatch, "build recipe is runtime-focused (root CLI only)");
+
+  // build-extra-workspaces should mention the extra packages
+  assert.match(justfile, /@gsd-build\/daemon/, "build-extra-workspaces mentions daemon");
+  assert.match(justfile, /@gsd-build\/mcp-server/, "build-extra-workspaces mentions mcp-server");
+  assert.match(justfile, /@gsd-build\/rpc-client/, "build-extra-workspaces mentions rpc-client");
+});
+
+test("justfile provides self-check recipe for repo diagnostics", () => {
+  const justfile = readFileSync(join(projectRoot, "justfile"), "utf8");
+
+  assert.match(justfile, /self-check[^:]*:/, "self-check recipe exists");
+  assert.match(justfile, /validate-pack/, "self-check runs validate-pack");
+});

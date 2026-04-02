@@ -3514,7 +3514,7 @@ export class InteractiveMode {
 		// Track current enabled state (session-only until persisted)
 		const currentEnabledIds = new Set(enabledModelIds);
 		let currentHasFilter = hasFilter;
-		const currentNanoGptTierPolicy =
+		let currentNanoGptTierPolicy =
 			this.settingsManager.getNanoGptTierPolicy();
 
 		// Helper to update session's scoped models (session-only, no persist)

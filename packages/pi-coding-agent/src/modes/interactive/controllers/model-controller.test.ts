@@ -18,7 +18,7 @@ function createModel(provider: string, id: string) {
 		api: "openai",
 		baseUrl: "",
 		reasoning: false,
-		input: ["text"],
+		input: ["text"] as const satisfies readonly ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 128000,
 		maxTokens: 16384,

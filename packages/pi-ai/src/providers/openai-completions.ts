@@ -902,5 +902,3 @@ function getCompat(
 			model.compat.supportsStrictMode ?? detected.supportsStrictMode,
 	};
 }
-
-}

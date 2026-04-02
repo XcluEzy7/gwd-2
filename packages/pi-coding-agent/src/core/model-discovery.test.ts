@@ -1,16 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-	getProviderContract,
-	getProviderDiscoveryTarget,
-	getProviderDiscoveryTtl,
-} from "../../../../src/resources/extensions/shared/provider-contracts.ts";
-import {
 	DISCOVERY_TTLS,
 	getDefaultTTL,
 	getDiscoverableProviders,
 	getDiscoveryAdapter,
-} from "./model-discovery.ts";
+} from "./model-discovery.js";
 
 // ─── getDiscoveryAdapter ─────────────────────────────────────────────────────
 

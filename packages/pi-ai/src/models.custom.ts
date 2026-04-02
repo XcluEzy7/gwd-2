@@ -11,7 +11,7 @@
 //   2. Add its API key mapping to env-api-keys.ts.
 //   3. Add its provider name to KnownProvider in types.ts (if not already there).
 
-import { getProviderRuntimeBaseUrl } from "../../../src/resources/extensions/shared/provider-contracts.js";
+import { getProviderRuntimeBaseUrl } from "./shared/provider-contracts.js";
 import type { Model } from "./types.js";
 
 export const CUSTOM_MODELS = {

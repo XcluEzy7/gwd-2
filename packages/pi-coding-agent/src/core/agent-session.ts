@@ -23,14 +23,24 @@ import type {
 	AgentTool,
 	ThinkingLevel,
 } from "@gsd/pi-agent-core";
-import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@gsd/pi-ai";
+import type {
+	AssistantMessage,
+	ImageContent,
+	Message,
+	Model,
+	TextContent,
+} from "@gsd/pi-ai";
 import { modelsAreEqual, resetApiProviders, supportsXhigh } from "@gsd/pi-ai";
 import { Type } from "@sinclair/typebox";
-import { getDocsPath } from "../config.js";
-import { getErrorMessage } from "../utils/error.js";
+import { CONFIG_DIR_NAME, getDocsPath } from "../config.js";
 import { theme } from "../modes/interactive/theme/theme.js";
+import { getErrorMessage } from "../utils/error.js";
 import { stripFrontmatter } from "../utils/frontmatter.js";
-import { type BashResult, executeBash as executeBashCommand, executeBashWithOperations } from "./bash-executor.js";
+import {
+	type BashResult,
+	executeBash as executeBashCommand,
+	executeBashWithOperations,
+} from "./bash-executor.js";
 import {
 	type CompactionResult,
 	calculateContextTokens,
@@ -40,7 +50,10 @@ import {
 } from "./compaction/index.js";
 import { CompactionOrchestrator } from "./compaction-orchestrator.js";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.js";
-import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.js";
+import {
+	exportSessionToHtml,
+	type ToolHtmlRenderer,
+} from "./export-html/index.js";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.js";
 import {
 	type ContextUsage,
@@ -66,17 +79,30 @@ import {
 	type TurnStartEvent,
 	wrapRegisteredTools,
 } from "./extensions/index.js";
-import type { BashExecutionMessage, CustomMessage } from "./messages.js";
 import { FallbackResolver } from "./fallback-resolver.js";
+import {
+	downsizeConversationImages,
+	isImageDimensionError,
+} from "./image-overflow-recovery.js";
+import type { BashExecutionMessage, CustomMessage } from "./messages.js";
 import type { ModelRegistry } from "./model-registry.js";
-import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.js";
-import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.js";
+import {
+	expandPromptTemplate,
+	type PromptTemplate,
+} from "./prompt-templates.js";
+import type {
+	ResourceExtensionPaths,
+	ResourceLoader,
+} from "./resource-loader.js";
 import { RetryHandler } from "./retry-handler.js";
-import { isImageDimensionError, downsizeConversationImages } from "./image-overflow-recovery.js";
 import type { BranchSummaryEntry, SessionManager } from "./session-manager.js";
 import { getLatestCompactionEntry } from "./session-manager.js";
 import type { SettingsManager } from "./settings-manager.js";
-import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo, type SlashCommandLocation } from "./slash-commands.js";
+import {
+	BUILTIN_SLASH_COMMANDS,
+	type SlashCommandInfo,
+	type SlashCommandLocation,
+} from "./slash-commands.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import type { BashOperations } from "./tools/bash.js";
 import { createAllTools } from "./tools/index.js";
@@ -98,7 +124,9 @@ export interface ParsedSkillBlock {
  * Returns null if the text doesn't contain a skill block.
  */
 export function parseSkillBlock(text: string): ParsedSkillBlock | null {
-	const match = text.match(/^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/);
+	const match = text.match(
+		/^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/,
+	);
 	if (!match) return null;
 	return {
 		name: match[1],
@@ -133,12 +161,32 @@ export type AgentSessionEvent =
 			willRetry: boolean;
 			errorMessage?: string;
 	  }
-	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
-	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
-	| { type: "fallback_provider_switch"; from: string; to: string; reason: string }
+	| {
+			type: "auto_retry_start";
+			attempt: number;
+			maxAttempts: number;
+			delayMs: number;
+			errorMessage: string;
+	  }
+	| {
+			type: "auto_retry_end";
+			success: boolean;
+			attempt: number;
+			finalError?: string;
+	  }
+	| {
+			type: "fallback_provider_switch";
+			from: string;
+			to: string;
+			reason: string;
+	  }
 	| { type: "fallback_provider_restored"; provider: string; reason: string }
 	| { type: "fallback_chain_exhausted"; reason: string }
-	| { type: "image_overflow_recovery"; strippedCount: number; imageCount: number };
+	| {
+			type: "image_overflow_recovery";
+			strippedCount: number;
+			imageCount: number;
+	  };
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
@@ -219,10 +267,50 @@ export interface SessionStats {
 // ============================================================================
 
 /** Standard thinking levels */
-const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
+const THINKING_LEVELS: ThinkingLevel[] = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+];
 
 /** Thinking levels including xhigh (for supported models) */
-const THINKING_LEVELS_WITH_XHIGH: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+const THINKING_LEVELS_WITH_XHIGH: ThinkingLevel[] = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+];
+
+const NANO_GPT_POLICY_SETTINGS_PATH = `${CONFIG_DIR_NAME}/settings.json`;
+
+type NanoGptTier = "subscription" | "payg";
+
+function isNanoGptTierPolicy(
+	value: unknown,
+): value is "both" | "subscription_only" | "payg_only" {
+	return (
+		value === "both" || value === "subscription_only" || value === "payg_only"
+	);
+}
+
+function getNanoGptTierForProvider(provider: string): NanoGptTier | undefined {
+	switch (provider) {
+		case "nano-gpt":
+			return "subscription";
+		case "nano-gpt-payg":
+			return "payg";
+		default:
+			return undefined;
+	}
+}
+
+function formatNanoGptTierLabel(tier: NanoGptTier): string {
+	return tier === "subscription" ? "subscription" : "pay-as-you-go";
+}
 
 // ============================================================================
 // AgentSession Class
@@ -233,7 +321,10 @@ export class AgentSession {
 	readonly sessionManager: SessionManager;
 	readonly settingsManager: SettingsManager;
 
-	private _scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+	private _scopedModels: Array<{
+		model: Model<any>;
+		thinkingLevel?: ThinkingLevel;
+	}>;
 
 	// Event subscription state
 	private _unsubscribeAgent?: () => void;
@@ -259,7 +350,6 @@ export class AgentSession {
 
 	/** Cost of the most recent assistant response (for per-prompt display). */
 	private _lastTurnCost = 0;
-
 
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
@@ -323,7 +413,8 @@ export class AgentSession {
 			getModel: () => this.model,
 			getSessionId: () => this.sessionId,
 			emit: (event) => this._emit(event),
-			onModelChange: (model) => this.sessionManager.appendModelChange(model.provider, model.id),
+			onModelChange: (model) =>
+				this.sessionManager.appendModelChange(model.provider, model.id),
 		});
 
 		this._compactionOrchestrator = new CompactionOrchestrator({
@@ -464,7 +555,9 @@ export class AgentSession {
 				this._cumulativeCost += assistantMsg.usage?.cost?.total ?? 0;
 				this._cumulativeInputTokens += assistantMsg.usage?.input ?? 0;
 				this._cumulativeOutputTokens += assistantMsg.usage?.output ?? 0;
-				this._cumulativeToolCalls += assistantMsg.content.filter((c) => c.type === "toolCall").length;
+				this._cumulativeToolCalls += assistantMsg.content.filter(
+					(c) => c.type === "toolCall",
+				).length;
 
 				if (assistantMsg.stopReason !== "error") {
 					this._compactionOrchestrator.clearOverflowRecovery();
@@ -501,7 +594,10 @@ export class AgentSession {
 				const result = downsizeConversationImages(messages as Message[]);
 				if (result.processed) {
 					// Remove the trailing error assistant message, then replace
-					if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
+					if (
+						messages.length > 0 &&
+						messages[messages.length - 1].role === "assistant"
+					) {
 						this.agent.replaceMessages(messages.slice(0, -1));
 					}
 
@@ -550,11 +646,18 @@ export class AgentSession {
 				if (callResult?.block) {
 					return {
 						block: true,
-						reason: callResult.reason || "Tool execution was blocked by an extension",
+						reason:
+							callResult.reason || "Tool execution was blocked by an extension",
 					};
 				}
 			} catch (err) {
-				return { block: true, reason: err instanceof Error ? err.message : `Extension failed, blocking execution: ${String(err)}` };
+				return {
+					block: true,
+					reason:
+						err instanceof Error
+							? err.message
+							: `Extension failed, blocking execution: ${String(err)}`,
+				};
 			}
 
 			return undefined;
@@ -616,7 +719,10 @@ export class AgentSession {
 			this._turnIndex = 0;
 			await this._extensionRunner.emit({ type: "agent_start" });
 		} else if (event.type === "agent_end") {
-			await this._extensionRunner.emit({ type: "agent_end", messages: event.messages });
+			await this._extensionRunner.emit({
+				type: "agent_end",
+				messages: event.messages,
+			});
 		} else if (event.type === "turn_start") {
 			const extensionEvent: TurnStartEvent = {
 				type: "turn_start",
@@ -790,7 +896,9 @@ export class AgentSession {
 	 * Changes take effect on the next agent turn.
 	 */
 	setActiveToolsByName(toolNames: string[]): void {
-		const requestedToolNames = [...new Set([...toolNames, ...this._getBuiltinToolNames()])];
+		const requestedToolNames = [
+			...new Set([...toolNames, ...this._getBuiltinToolNames()]),
+		];
 		const tools: AgentTool[] = [];
 		const validToolNames: string[] = [];
 		for (const name of requestedToolNames) {
@@ -801,7 +909,6 @@ export class AgentSession {
 			}
 		}
 		this.agent.setTools(tools);
-
 
 		// Rebuild base system prompt with new tool set
 		this._baseSystemPrompt = this._rebuildSystemPrompt(validToolNames);
@@ -880,12 +987,17 @@ export class AgentSession {
 	}
 
 	/** Scoped models for cycling (from --models flag) */
-	get scopedModels(): ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }> {
+	get scopedModels(): ReadonlyArray<{
+		model: Model<any>;
+		thinkingLevel?: ThinkingLevel;
+	}> {
 		return this._scopedModels;
 	}
 
 	/** Update scoped models for cycling */
-	setScopedModels(scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>): void {
+	setScopedModels(
+		scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>,
+	): void {
 		this._scopedModels = scopedModels;
 	}
 
@@ -894,7 +1006,9 @@ export class AgentSession {
 		return this._resourceLoader.getPrompts().prompts;
 	}
 
-	private _normalizePromptSnippet(text: string | undefined): string | undefined {
+	private _normalizePromptSnippet(
+		text: string | undefined,
+	): string | undefined {
 		if (!text) return undefined;
 		const oneLine = text
 			.replace(/[\r\n]+/g, " ")
@@ -903,7 +1017,9 @@ export class AgentSession {
 		return oneLine.length > 0 ? oneLine : undefined;
 	}
 
-	private _normalizePromptGuidelines(guidelines: string[] | undefined): string[] {
+	private _normalizePromptGuidelines(
+		guidelines: string[] | undefined,
+	): string[] {
 		if (!guidelines || guidelines.length === 0) {
 			return [];
 		}
@@ -919,11 +1035,17 @@ export class AgentSession {
 	}
 
 	private _findSkillByName(skillName: string) {
-		return this.resourceLoader.getSkills().skills.find((skill) => skill.name === skillName);
+		return this.resourceLoader
+			.getSkills()
+			.skills.find((skill) => skill.name === skillName);
 	}
 
 	private _formatMissingSkillMessage(skillName: string): string {
-		const availableSkills = this.resourceLoader.getSkills().skills.map((skill) => skill.name).join(", ") || "(none)";
+		const availableSkills =
+			this.resourceLoader
+				.getSkills()
+				.skills.map((skill) => skill.name)
+				.join(", ") || "(none)";
 		return `Skill "${skillName}" not found. Available skills: ${availableSkills}`;
 	}
 
@@ -935,7 +1057,10 @@ export class AgentSession {
 		});
 	}
 
-	private _renderSkillInvocation(skill: { name: string; filePath: string; baseDir: string }, args?: string): string {
+	private _renderSkillInvocation(
+		skill: { name: string; filePath: string; baseDir: string },
+		args?: string,
+	): string {
 		const content = readFileSync(skill.filePath, "utf-8");
 		const body = stripFrontmatter(content).trim();
 		const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
@@ -961,7 +1086,9 @@ export class AgentSession {
 	}
 
 	private _rebuildSystemPrompt(toolNames: string[]): string {
-		const validToolNames = toolNames.filter((name) => this._toolRegistry.has(name));
+		const validToolNames = toolNames.filter((name) =>
+			this._toolRegistry.has(name),
+		);
 		const toolSnippets: Record<string, string> = {};
 		const promptGuidelines: string[] = [];
 		for (const name of validToolNames) {
@@ -977,11 +1104,15 @@ export class AgentSession {
 		}
 
 		const loaderSystemPrompt = this._resourceLoader.getSystemPrompt();
-		const loaderAppendSystemPrompt = this._resourceLoader.getAppendSystemPrompt();
+		const loaderAppendSystemPrompt =
+			this._resourceLoader.getAppendSystemPrompt();
 		const appendSystemPrompt =
-			loaderAppendSystemPrompt.length > 0 ? loaderAppendSystemPrompt.join("\n\n") : undefined;
+			loaderAppendSystemPrompt.length > 0
+				? loaderAppendSystemPrompt.join("\n\n")
+				: undefined;
 		const loadedSkills = this._resourceLoader.getSkills().skills;
-		const loadedContextFiles = this._resourceLoader.getAgentsFiles().agentsFiles;
+		const loadedContextFiles =
+			this._resourceLoader.getAgentsFiles().agentsFiles;
 
 		return buildSystemPrompt({
 			cwd: this._cwd,
@@ -993,6 +1124,41 @@ export class AgentSession {
 			toolSnippets,
 			promptGuidelines,
 		});
+	}
+
+	private _getNanoGptTierPolicy(): "both" | "subscription_only" | "payg_only" {
+		const policyGetter = (this.settingsManager as unknown as {
+			getNanoGptTierPolicy?: () => unknown;
+		}).getNanoGptTierPolicy;
+		const policy = policyGetter?.call(this.settingsManager) ?? "both";
+		if (!isNanoGptTierPolicy(policy)) {
+			throw new Error(
+				`Invalid NanoGPT tier policy "${String(policy)}". Update "nanoGptTierPolicy" in ${NANO_GPT_POLICY_SETTINGS_PATH} or correct it in /scoped-models.`,
+			);
+		}
+		return policy;
+	}
+
+	private _assertNanoGptTierPolicyAllowed(
+		model: Model<any>,
+		requesterLabel: string,
+	): void {
+		const tier = getNanoGptTierForProvider(model.provider);
+		if (!tier) {
+			return;
+		}
+
+		const policy = this._getNanoGptTierPolicy();
+		const blocked =
+			(policy === "subscription_only" && tier === "payg") ||
+			(policy === "payg_only" && tier === "subscription");
+		if (!blocked) {
+			return;
+		}
+
+		throw new Error(
+			`NanoGPT tier policy blocked ${requesterLabel} from using ${model.provider}/${model.id}. Current policy: ${policy}. This request needs the ${formatNanoGptTierLabel(tier)} NanoGPT tier. Edit the policy in /scoped-models or set "nanoGptTierPolicy" in ${NANO_GPT_POLICY_SETTINGS_PATH}.`,
+		);
 	}
 
 	// =========================================================================
@@ -1043,7 +1209,9 @@ export class AgentSession {
 		let expandedText = currentText;
 		if (expandPromptTemplates) {
 			expandedText = this._expandSkillCommand(expandedText);
-			expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+			expandedText = expandPromptTemplate(expandedText, [
+				...this.promptTemplates,
+			]);
 		}
 
 		// If streaming, queue via steer() or followUp() based on option
@@ -1074,17 +1242,25 @@ export class AgentSession {
 		}
 
 		// Check if a higher-priority provider in the fallback chain has recovered
-		const restoration = await this._fallbackResolver.checkForRestoration(this.model);
+		const restoration = await this._fallbackResolver.checkForRestoration(
+			this.model,
+		);
 		if (restoration) {
+			this._assertNanoGptTierPolicyAllowed(restoration.model, "prompt");
 			const previousProvider = `${this.model.provider}/${this.model.id}`;
 			this.agent.setModel(restoration.model);
-			this.sessionManager.appendModelChange(restoration.model.provider, restoration.model.id);
+			this.sessionManager.appendModelChange(
+				restoration.model.provider,
+				restoration.model.id,
+			);
 			this._emit({
 				type: "fallback_provider_restored",
 				provider: `${restoration.model.provider}/${restoration.model.id}`,
 				reason: `Restored from ${previousProvider}`,
 			});
 		}
+
+		this._assertNanoGptTierPolicyAllowed(this.model, "prompt");
 
 		// Validate provider readiness
 		if (!this._modelRegistry.isProviderRequestReady(this.model.provider)) {
@@ -1112,7 +1288,9 @@ export class AgentSession {
 		const messages: AgentMessage[] = [];
 
 		// Add user message
-		const userContent: (TextContent | ImageContent)[] = [{ type: "text", text: expandedText }];
+		const userContent: (TextContent | ImageContent)[] = [
+			{ type: "text", text: expandedText },
+		];
 		if (currentImages) {
 			userContent.push(...currentImages);
 		}
@@ -1169,7 +1347,8 @@ export class AgentSession {
 
 		// Parse command name and args
 		const spaceIndex = text.indexOf(" ");
-		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+		const commandName =
+			spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
 		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
 
 		const command = this._extensionRunner.getCommand(commandName);
@@ -1201,7 +1380,8 @@ export class AgentSession {
 		if (!text.startsWith("/skill:")) return text;
 
 		const spaceIndex = text.indexOf(" ");
-		const skillName = spaceIndex === -1 ? text.slice(7) : text.slice(7, spaceIndex);
+		const skillName =
+			spaceIndex === -1 ? text.slice(7) : text.slice(7, spaceIndex);
 		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1).trim();
 
 		if (!this._findSkillByName(skillName)) return text;
@@ -1215,8 +1395,12 @@ export class AgentSession {
 
 	private _createBuiltInSkillTool(): AgentTool {
 		const skillSchema = Type.Object({
-			skill: Type.String({ description: "The skill name. E.g., 'commit', 'review-pr', or 'pdf'" }),
-			args: Type.Optional(Type.String({ description: "Optional arguments for the skill" })),
+			skill: Type.String({
+				description: "The skill name. E.g., 'commit', 'review-pr', or 'pdf'",
+			}),
+			args: Type.Optional(
+				Type.String({ description: "Optional arguments for the skill" }),
+			),
 		});
 
 		return {
@@ -1256,7 +1440,8 @@ export class AgentSession {
 	}
 
 	private _getRegisteredToolDefinitions(): ToolDefinition[] {
-		const registeredTools = this._extensionRunner?.getAllRegisteredTools() ?? [];
+		const registeredTools =
+			this._extensionRunner?.getAllRegisteredTools() ?? [];
 		return registeredTools.map((tool) => tool.definition);
 	}
 
@@ -1271,9 +1456,10 @@ export class AgentSession {
 	}
 
 	getRenderableToolDefinition(toolName: string): ToolDefinition | undefined {
-		return [...this._getBuiltinToolDefinitions(), ...this._getRegisteredToolDefinitions()].find(
-			(tool) => tool.name === toolName,
-		);
+		return [
+			...this._getBuiltinToolDefinitions(),
+			...this._getRegisteredToolDefinitions(),
+		].find((tool) => tool.name === toolName);
 	}
 
 	/**
@@ -1291,7 +1477,9 @@ export class AgentSession {
 
 		// Expand skill commands and prompt templates
 		let expandedText = this._expandSkillCommand(text);
-		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+		expandedText = expandPromptTemplate(expandedText, [
+			...this.promptTemplates,
+		]);
 
 		await this._queueSteer(expandedText, images);
 	}
@@ -1311,7 +1499,9 @@ export class AgentSession {
 
 		// Expand skill commands and prompt templates
 		let expandedText = this._expandSkillCommand(text);
-		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+		expandedText = expandPromptTemplate(expandedText, [
+			...this.promptTemplates,
+		]);
 
 		await this._queueFollowUp(expandedText, images);
 	}
@@ -1319,7 +1509,10 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
-	private async _queueSteer(text: string, images?: ImageContent[]): Promise<void> {
+	private async _queueSteer(
+		text: string,
+		images?: ImageContent[],
+	): Promise<void> {
 		this._steeringMessages.push(text);
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images) {
@@ -1338,7 +1531,10 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
 	 */
-	private async _queueFollowUp(text: string, images?: ImageContent[]): Promise<void> {
+	private async _queueFollowUp(
+		text: string,
+		images?: ImageContent[],
+	): Promise<void> {
 		this._followUpMessages.push(text);
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images) {
@@ -1361,7 +1557,8 @@ export class AgentSession {
 		if (!this._extensionRunner) return;
 
 		const spaceIndex = text.indexOf(" ");
-		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+		const commandName =
+			spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
 		const command = this._extensionRunner.getCommand(commandName);
 
 		if (command) {
@@ -1384,8 +1581,14 @@ export class AgentSession {
 	 * @param options.deliverAs Delivery mode: "steer", "followUp", or "nextTurn"
 	 */
 	async sendCustomMessage<T = unknown>(
-		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
-		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+		message: Pick<
+			CustomMessage<T>,
+			"customType" | "content" | "display" | "details"
+		>,
+		options?: {
+			triggerTurn?: boolean;
+			deliverAs?: "steer" | "followUp" | "nextTurn";
+		},
 	): Promise<void> {
 		const appMessage = {
 			role: "custom" as const,
@@ -1472,11 +1675,19 @@ export class AgentSession {
 		// Extract text content from preserved user messages
 		const extractText = (m: AgentMessage): string => {
 			if (!("content" in m) || !Array.isArray(m.content)) return "";
-			const textPart = m.content.find((c: { type: string }) => c.type === "text");
-			return textPart && "text" in textPart ? (textPart as { text: string }).text : "";
+			const textPart = m.content.find(
+				(c: { type: string }) => c.type === "text",
+			);
+			return textPart && "text" in textPart
+				? (textPart as { text: string }).text
+				: "";
 		};
-		const preservedSteering = userMessages.steering.map(extractText).filter((t) => t.length > 0);
-		const preservedFollowUp = userMessages.followUp.map(extractText).filter((t) => t.length > 0);
+		const preservedSteering = userMessages.steering
+			.map(extractText)
+			.filter((t) => t.length > 0);
+		const preservedFollowUp = userMessages.followUp
+			.map(extractText)
+			.filter((t) => t.length > 0);
 
 		// Session-level string arrays track what was queued for display purposes.
 		// Return the full set (session-tracked + any agent-only user messages).
@@ -1648,7 +1859,14 @@ export class AgentSession {
 	 * Validates provider readiness, saves to session and settings.
 	 * @throws Error if provider is not ready (missing credentials for apiKey/oauth providers)
 	 */
-	async setModel(model: Model<any>, options?: { persist?: boolean }): Promise<void> {
+	async setModel(
+		model: Model<any>,
+		options?: { persist?: boolean; requesterLabel?: string },
+	): Promise<void> {
+		this._assertNanoGptTierPolicyAllowed(
+			model,
+			options?.requesterLabel ?? "/model",
+		);
 		if (!this._modelRegistry.isProviderRequestReady(model.provider)) {
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
@@ -1663,55 +1881,87 @@ export class AgentSession {
 	 * @param direction - "forward" (default) or "backward"
 	 * @returns The new model info, or undefined if only one model available
 	 */
-	async cycleModel(direction: "forward" | "backward" = "forward", options?: { persist?: boolean }): Promise<ModelCycleResult | undefined> {
+	async cycleModel(
+		direction: "forward" | "backward" = "forward",
+		options?: { persist?: boolean },
+	): Promise<ModelCycleResult | undefined> {
 		if (this._scopedModels.length > 0) {
 			return this._cycleScopedModel(direction, options);
 		}
 		return this._cycleAvailableModel(direction, options);
 	}
 
-	private _getReadyScopedModels(): Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }> {
+	private _getReadyScopedModels(): Array<{
+		model: Model<any>;
+		thinkingLevel?: ThinkingLevel;
+	}> {
 		return this._scopedModels.filter((scoped) =>
 			this._modelRegistry.isProviderRequestReady(scoped.model.provider),
 		);
 	}
 
-	private async _cycleScopedModel(direction: "forward" | "backward", options?: { persist?: boolean }): Promise<ModelCycleResult | undefined> {
+	private async _cycleScopedModel(
+		direction: "forward" | "backward",
+		options?: { persist?: boolean },
+	): Promise<ModelCycleResult | undefined> {
 		const scopedModels = this._getReadyScopedModels();
 		if (scopedModels.length <= 1) return undefined;
 
 		const currentModel = this.model;
-		let currentIndex = scopedModels.findIndex((sm) => modelsAreEqual(sm.model, currentModel));
+		let currentIndex = scopedModels.findIndex((sm) =>
+			modelsAreEqual(sm.model, currentModel),
+		);
 
 		if (currentIndex === -1) currentIndex = 0;
 		const len = scopedModels.length;
-		const nextIndex = direction === "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
+		const nextIndex =
+			direction === "forward"
+				? (currentIndex + 1) % len
+				: (currentIndex - 1 + len) % len;
 		const next = scopedModels[nextIndex];
 
 		// Explicit scoped model thinking level overrides current session level;
 		// undefined scoped model thinking level inherits the current session preference.
-		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.thinkingLevel);
+		const thinkingLevel = this._getThinkingLevelForModelSwitch(
+			next.thinkingLevel,
+		);
 		await this._applyModelChange(next.model, thinkingLevel, "cycle", options);
 
-		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: true,
+		};
 	}
 
-	private async _cycleAvailableModel(direction: "forward" | "backward", options?: { persist?: boolean }): Promise<ModelCycleResult | undefined> {
+	private async _cycleAvailableModel(
+		direction: "forward" | "backward",
+		options?: { persist?: boolean },
+	): Promise<ModelCycleResult | undefined> {
 		const availableModels = await this._modelRegistry.getAvailable();
 		if (availableModels.length <= 1) return undefined;
 
 		const currentModel = this.model;
-		let currentIndex = availableModels.findIndex((m) => modelsAreEqual(m, currentModel));
+		let currentIndex = availableModels.findIndex((m) =>
+			modelsAreEqual(m, currentModel),
+		);
 
 		if (currentIndex === -1) currentIndex = 0;
 		const len = availableModels.length;
-		const nextIndex = direction === "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
+		const nextIndex =
+			direction === "forward"
+				? (currentIndex + 1) % len
+				: (currentIndex - 1 + len) % len;
 		const nextModel = availableModels[nextIndex];
 
 		const thinkingLevel = this._getThinkingLevelForModelSwitch();
 		await this._applyModelChange(nextModel, thinkingLevel, "cycle", options);
 
-		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };
+		return {
+			model: nextModel,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: false,
+		};
 	}
 
 	// =========================================================================
@@ -1725,7 +1975,9 @@ export class AgentSession {
 	 */
 	setThinkingLevel(level: ThinkingLevel): void {
 		const availableLevels = this.getAvailableThinkingLevels();
-		const effectiveLevel = availableLevels.includes(level) ? level : this._clampThinkingLevel(level, availableLevels);
+		const effectiveLevel = availableLevels.includes(level)
+			? level
+			: this._clampThinkingLevel(level, availableLevels);
 
 		// Only persist if actually changing
 		const isChanging = effectiveLevel !== this.agent.state.thinkingLevel;
@@ -1763,7 +2015,9 @@ export class AgentSession {
 	 */
 	getAvailableThinkingLevels(): ThinkingLevel[] {
 		if (!this.supportsThinking()) return ["off"];
-		return this.supportsXhighThinking() ? THINKING_LEVELS_WITH_XHIGH : THINKING_LEVELS;
+		return this.supportsXhighThinking()
+			? THINKING_LEVELS_WITH_XHIGH
+			: THINKING_LEVELS;
 	}
 
 	/**
@@ -1780,17 +2034,24 @@ export class AgentSession {
 		return !!this.model?.reasoning;
 	}
 
-	private _getThinkingLevelForModelSwitch(explicitLevel?: ThinkingLevel): ThinkingLevel {
+	private _getThinkingLevelForModelSwitch(
+		explicitLevel?: ThinkingLevel,
+	): ThinkingLevel {
 		if (explicitLevel !== undefined) {
 			return explicitLevel;
 		}
 		if (!this.supportsThinking()) {
-			return this.settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
+			return (
+				this.settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL
+			);
 		}
 		return this.thinkingLevel;
 	}
 
-	private _clampThinkingLevel(level: ThinkingLevel, availableLevels: ThinkingLevel[]): ThinkingLevel {
+	private _clampThinkingLevel(
+		level: ThinkingLevel,
+		availableLevels: ThinkingLevel[],
+	): ThinkingLevel {
 		const ordered = THINKING_LEVELS_WITH_XHIGH;
 		const available = new Set(availableLevels);
 		const requestedIndex = ordered.indexOf(level);
@@ -1887,17 +2148,21 @@ export class AgentSession {
 		}
 	}
 
-	private async extendResourcesFromExtensions(reason: "startup" | "reload"): Promise<void> {
+	private async extendResourcesFromExtensions(
+		reason: "startup" | "reload",
+	): Promise<void> {
 		if (!this._extensionRunner?.hasHandlers("resources_discover")) {
 			return;
 		}
 
-		const { skillPaths, promptPaths, themePaths } = await this._extensionRunner.emitResourcesDiscover(
-			this._cwd,
-			reason,
-		);
+		const { skillPaths, promptPaths, themePaths } =
+			await this._extensionRunner.emitResourcesDiscover(this._cwd, reason);
 
-		if (skillPaths.length === 0 && promptPaths.length === 0 && themePaths.length === 0) {
+		if (
+			skillPaths.length === 0 &&
+			promptPaths.length === 0 &&
+			themePaths.length === 0
+		) {
 			return;
 		}
 
@@ -1908,17 +2173,28 @@ export class AgentSession {
 		};
 
 		this._resourceLoader.extendResources(extensionPaths);
-		this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
+		this._baseSystemPrompt = this._rebuildSystemPrompt(
+			this.getActiveToolNames(),
+		);
 		this.agent.setSystemPrompt(this._baseSystemPrompt);
 	}
 
-	private buildExtensionResourcePaths(entries: Array<{ path: string; extensionPath: string }>): Array<{
+	private buildExtensionResourcePaths(
+		entries: Array<{ path: string; extensionPath: string }>,
+	): Array<{
 		path: string;
-		metadata: { source: string; scope: "temporary"; origin: "top-level"; baseDir?: string };
+		metadata: {
+			source: string;
+			scope: "temporary";
+			origin: "top-level";
+			baseDir?: string;
+		};
 	}> {
 		return entries.map((entry) => {
 			const source = this.getExtensionSourceLabel(entry.extensionPath);
-			const baseDir = entry.extensionPath.startsWith("<") ? undefined : dirname(entry.extensionPath);
+			const baseDir = entry.extensionPath.startsWith("<")
+				? undefined
+				: dirname(entry.extensionPath);
 			return {
 				path: entry.path,
 				metadata: {
@@ -1955,14 +2231,18 @@ export class AgentSession {
 	}
 
 	private _bindExtensionCore(runner: ExtensionRunner): void {
-		const normalizeLocation = (source: string): SlashCommandLocation | undefined => {
+		const normalizeLocation = (
+			source: string,
+		): SlashCommandLocation | undefined => {
 			if (source === "user" || source === "project" || source === "path") {
 				return source;
 			}
 			return undefined;
 		};
 
-		const reservedBuiltins = new Set(BUILTIN_SLASH_COMMANDS.map((command) => command.name));
+		const reservedBuiltins = new Set(
+			BUILTIN_SLASH_COMMANDS.map((command) => command.name),
+		);
 
 		const getCommands = (): SlashCommandInfo[] => {
 			const extensionCommands: SlashCommandInfo[] = runner
@@ -1975,21 +2255,25 @@ export class AgentSession {
 					path: extensionPath,
 				}));
 
-			const templates: SlashCommandInfo[] = this.promptTemplates.map((template) => ({
-				name: template.name,
-				description: template.description,
-				source: "prompt",
-				location: normalizeLocation(template.source),
-				path: template.filePath,
-			}));
+			const templates: SlashCommandInfo[] = this.promptTemplates.map(
+				(template) => ({
+					name: template.name,
+					description: template.description,
+					source: "prompt",
+					location: normalizeLocation(template.source),
+					path: template.filePath,
+				}),
+			);
 
-			const skills: SlashCommandInfo[] = this._resourceLoader.getSkills().skills.map((skill) => ({
-				name: `skill:${skill.name}`,
-				description: skill.description,
-				source: "skill",
-				location: normalizeLocation(skill.source),
-				path: skill.filePath,
-			}));
+			const skills: SlashCommandInfo[] = this._resourceLoader
+				.getSkills()
+				.skills.map((skill) => ({
+					name: `skill:${skill.name}`,
+					description: skill.description,
+					source: "skill",
+					location: normalizeLocation(skill.source),
+					path: skill.filePath,
+				}));
 
 			return [...extensionCommands, ...templates, ...skills];
 		};
@@ -2017,10 +2301,15 @@ export class AgentSession {
 				retryLastTurn: () => {
 					const messages = this.agent.state.messages;
 					const last = messages[messages.length - 1];
-					if (last?.role === "assistant" && (last as AssistantMessage).stopReason === "error") {
+					if (
+						last?.role === "assistant" &&
+						(last as AssistantMessage).stopReason === "error"
+					) {
 						// If the error was an image dimension overflow, downsize images
 						// before retrying so the retry doesn't hit the same error (#2874)
-						if (isImageDimensionError((last as AssistantMessage).errorMessage)) {
+						if (
+							isImageDimensionError((last as AssistantMessage).errorMessage)
+						) {
 							downsizeConversationImages(messages as Message[]);
 						}
 						this.agent.replaceMessages(messages.slice(0, -1));
@@ -2051,7 +2340,8 @@ export class AgentSession {
 				refreshTools: () => this._refreshToolRegistry(),
 				getCommands,
 				setModel: async (model, options) => {
-					if (!this.modelRegistry.isProviderRequestReady(model.provider)) return false;
+					if (!this.modelRegistry.isProviderRequestReady(model.provider))
+						return false;
 					await this.setModel(model, options);
 					return true;
 				},
@@ -2073,7 +2363,8 @@ export class AgentSession {
 							const result = await this.compact(options?.customInstructions);
 							options?.onComplete?.(result);
 						} catch (error) {
-							const err = error instanceof Error ? error : new Error(String(error));
+							const err =
+								error instanceof Error ? error : new Error(String(error));
 							options?.onError?.(err);
 						}
 					})();
@@ -2083,32 +2374,50 @@ export class AgentSession {
 		);
 	}
 
-	private _refreshToolRegistry(options?: { activeToolNames?: string[]; includeAllExtensionTools?: boolean }): void {
+	private _refreshToolRegistry(options?: {
+		activeToolNames?: string[];
+		includeAllExtensionTools?: boolean;
+	}): void {
 		const previousRegistryNames = new Set(this._toolRegistry.keys());
 		const previousActiveToolNames = this.getActiveToolNames();
 
-		const registeredTools = this._extensionRunner?.getAllRegisteredTools() ?? [];
+		const registeredTools =
+			this._extensionRunner?.getAllRegisteredTools() ?? [];
 		const allCustomTools = [
 			...registeredTools,
-			...this._customTools.map((def) => ({ definition: def, extensionPath: "<sdk>" })),
+			...this._customTools.map((def) => ({
+				definition: def,
+				extensionPath: "<sdk>",
+			})),
 		];
 		this._toolPromptSnippets = new Map(
 			allCustomTools
 				.map((registeredTool) => {
 					const snippet = this._normalizePromptSnippet(
-						registeredTool.definition.promptSnippet ?? registeredTool.definition.description,
+						registeredTool.definition.promptSnippet ??
+							registeredTool.definition.description,
 					);
-					return snippet ? ([registeredTool.definition.name, snippet] as const) : undefined;
+					return snippet
+						? ([registeredTool.definition.name, snippet] as const)
+						: undefined;
 				})
-				.filter((entry): entry is readonly [string, string] => entry !== undefined),
+				.filter(
+					(entry): entry is readonly [string, string] => entry !== undefined,
+				),
 		);
 		this._toolPromptGuidelines = new Map(
 			allCustomTools
 				.map((registeredTool) => {
-					const guidelines = this._normalizePromptGuidelines(registeredTool.definition.promptGuidelines);
-					return guidelines.length > 0 ? ([registeredTool.definition.name, guidelines] as const) : undefined;
+					const guidelines = this._normalizePromptGuidelines(
+						registeredTool.definition.promptGuidelines,
+					);
+					return guidelines.length > 0
+						? ([registeredTool.definition.name, guidelines] as const)
+						: undefined;
 				})
-				.filter((entry): entry is readonly [string, string[]] => entry !== undefined),
+				.filter(
+					(entry): entry is readonly [string, string[]] => entry !== undefined,
+				),
 		);
 		const wrappedExtensionTools = this._extensionRunner
 			? wrapRegisteredTools(allCustomTools, this._extensionRunner)
@@ -2168,7 +2477,12 @@ export class AgentSession {
 					},
 				});
 
-		this._baseToolRegistry = new Map(Object.entries(baseTools).map(([name, tool]) => [name, tool as AgentTool]));
+		this._baseToolRegistry = new Map(
+			Object.entries(baseTools).map(([name, tool]) => [
+				name,
+				tool as AgentTool,
+			]),
+		);
 
 		const extensionsResult = this._resourceLoader.getExtensions();
 		if (options.flagValues) {
@@ -2200,7 +2514,8 @@ export class AgentSession {
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
 			: ["read", "bash", "edit", "write", "lsp"];
-		const baseActiveToolNames = options.activeToolNames ?? defaultActiveToolNames;
+		const baseActiveToolNames =
+			options.activeToolNames ?? defaultActiveToolNames;
 		this._refreshToolRegistry({
 			activeToolNames: baseActiveToolNames,
 			includeAllExtensionTools: options.includeAllExtensionTools,
@@ -2274,7 +2589,11 @@ export class AgentSession {
 	async executeBash(
 		command: string,
 		onChunk?: (chunk: string) => void,
-		options?: { excludeFromContext?: boolean; operations?: BashOperations; loginShell?: boolean },
+		options?: {
+			excludeFromContext?: boolean;
+			operations?: BashOperations;
+			loginShell?: boolean;
+		},
 	): Promise<BashResult> {
 		this._bashAbortController = new AbortController();
 
@@ -2284,10 +2603,15 @@ export class AgentSession {
 
 		try {
 			const result = options?.operations
-				? await executeBashWithOperations(resolvedCommand, process.cwd(), options.operations, {
-						onChunk,
-						signal: this._bashAbortController.signal,
-					})
+				? await executeBashWithOperations(
+						resolvedCommand,
+						process.cwd(),
+						options.operations,
+						{
+							onChunk,
+							signal: this._bashAbortController.signal,
+						},
+					)
 				: await executeBashCommand(resolvedCommand, {
 						onChunk,
 						signal: this._bashAbortController.signal,
@@ -2305,7 +2629,11 @@ export class AgentSession {
 	 * Record a bash execution result in session history.
 	 * Used by executeBash and by extensions that handle bash execution themselves.
 	 */
-	recordBashResult(command: string, result: BashResult, options?: { excludeFromContext?: boolean }): void {
+	recordBashResult(
+		command: string,
+		result: BashResult,
+		options?: { excludeFromContext?: boolean },
+	): void {
 		const bashMessage: BashExecutionMessage = {
 			role: "bashExecution",
 			command,
@@ -2423,7 +2751,9 @@ export class AgentSession {
 			const previousModel = this.model;
 			const availableModels = await this._modelRegistry.getAvailable();
 			const match = availableModels.find(
-				(m) => m.provider === sessionContext.model!.provider && m.id === sessionContext.model!.modelId,
+				(m) =>
+					m.provider === sessionContext.model!.provider &&
+					m.id === sessionContext.model!.modelId,
 			);
 			if (match) {
 				this.agent.setModel(match);
@@ -2431,8 +2761,11 @@ export class AgentSession {
 			}
 		}
 
-		const hasThinkingEntry = this.sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change");
-		const defaultThinkingLevel = this.settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
+		const hasThinkingEntry = this.sessionManager
+			.getBranch()
+			.some((entry) => entry.type === "thinking_level_change");
+		const defaultThinkingLevel =
+			this.settingsManager.getDefaultThinkingLevel() ?? DEFAULT_THINKING_LEVEL;
 
 		if (hasThinkingEntry) {
 			// Restore thinking level if saved (setThinkingLevel clamps to model capabilities)
@@ -2468,15 +2801,23 @@ export class AgentSession {
 	 *   - selectedText: The text of the selected user message (for editor pre-fill)
 	 *   - cancelled: True if an extension cancelled the fork
 	 */
-	async fork(entryId: string): Promise<{ selectedText: string; cancelled: boolean }> {
+	async fork(
+		entryId: string,
+	): Promise<{ selectedText: string; cancelled: boolean }> {
 		const previousSessionFile = this.sessionFile;
 		const selectedEntry = this.sessionManager.getEntry(entryId);
 
-		if (!selectedEntry || selectedEntry.type !== "message" || selectedEntry.message.role !== "user") {
+		if (
+			!selectedEntry ||
+			selectedEntry.type !== "message" ||
+			selectedEntry.message.role !== "user"
+		) {
 			throw new Error("Invalid entry ID for forking");
 		}
 
-		const selectedText = this._extractUserMessageText(selectedEntry.message.content);
+		const selectedText = this._extractUserMessageText(
+			selectedEntry.message.content,
+		);
 
 		let skipConversationRestore = false;
 
@@ -2541,8 +2882,18 @@ export class AgentSession {
 	 */
 	async navigateTree(
 		targetId: string,
-		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
-	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
+		options: {
+			summarize?: boolean;
+			customInstructions?: string;
+			replaceInstructions?: boolean;
+			label?: string;
+		} = {},
+	): Promise<{
+		editorText?: string;
+		cancelled: boolean;
+		aborted?: boolean;
+		summaryEntry?: BranchSummaryEntry;
+	}> {
 		const oldLeafId = this.sessionManager.getLeafId();
 
 		// No-op if already at target
@@ -2561,11 +2912,8 @@ export class AgentSession {
 		}
 
 		// Collect entries to summarize (from old leaf to common ancestor)
-		const { entries: entriesToSummarize, commonAncestorId } = collectEntriesForBranchSummary(
-			this.sessionManager,
-			oldLeafId,
-			targetId,
-		);
+		const { entries: entriesToSummarize, commonAncestorId } =
+			collectEntriesForBranchSummary(this.sessionManager, oldLeafId, targetId);
 
 		// Prepare event data - mutable so extensions can override
 		let customInstructions = options.customInstructions;
@@ -2584,7 +2932,8 @@ export class AgentSession {
 		};
 
 		// Set up abort controller for summarization
-		this._compactionOrchestrator.branchSummaryAbortController = new AbortController();
+		this._compactionOrchestrator.branchSummaryAbortController =
+			new AbortController();
 		let extensionSummary: { summary: string; details?: unknown } | undefined;
 		let fromExtension = false;
 
@@ -2593,7 +2942,8 @@ export class AgentSession {
 			const result = (await this._extensionRunner.emit({
 				type: "session_before_tree",
 				preparation,
-				signal: this._compactionOrchestrator.branchSummaryAbortController.signal,
+				signal:
+					this._compactionOrchestrator.branchSummaryAbortController.signal,
 			})) as SessionBeforeTreeResult | undefined;
 
 			if (result?.cancel) {
@@ -2620,17 +2970,23 @@ export class AgentSession {
 		// Run default summarizer if needed
 		let summaryText: string | undefined;
 		let summaryDetails: unknown;
-		if (options.summarize && entriesToSummarize.length > 0 && !extensionSummary) {
+		if (
+			options.summarize &&
+			entriesToSummarize.length > 0 &&
+			!extensionSummary
+		) {
 			const model = this.model!;
 			if (!this._modelRegistry.isProviderRequestReady(model.provider)) {
 				throw new Error(`No API key for ${model.provider}`);
 			}
 			const apiKey = await this._modelRegistry.getApiKey(model, this.sessionId);
-			const branchSummarySettings = this.settingsManager.getBranchSummarySettings();
+			const branchSummarySettings =
+				this.settingsManager.getBranchSummarySettings();
 			const result = await generateBranchSummary(entriesToSummarize, {
 				model,
 				apiKey,
-				signal: this._compactionOrchestrator.branchSummaryAbortController.signal,
+				signal:
+					this._compactionOrchestrator.branchSummaryAbortController.signal,
 				customInstructions,
 				replaceInstructions,
 				reserveTokens: branchSummarySettings.reserveTokens,
@@ -2667,7 +3023,9 @@ export class AgentSession {
 				typeof targetEntry.content === "string"
 					? targetEntry.content
 					: targetEntry.content
-							.filter((c): c is { type: "text"; text: string } => c.type === "text")
+							.filter(
+								(c): c is { type: "text"; text: string } => c.type === "text",
+							)
 							.map((c) => c.text)
 							.join("");
 		} else {
@@ -2680,8 +3038,15 @@ export class AgentSession {
 		let summaryEntry: BranchSummaryEntry | undefined;
 		if (summaryText) {
 			// Create summary at target position (can be null for root)
-			const summaryId = this.sessionManager.branchWithSummary(newLeafId, summaryText, summaryDetails, fromExtension);
-			summaryEntry = this.sessionManager.getEntry(summaryId) as BranchSummaryEntry;
+			const summaryId = this.sessionManager.branchWithSummary(
+				newLeafId,
+				summaryText,
+				summaryDetails,
+				fromExtension,
+			);
+			summaryEntry = this.sessionManager.getEntry(
+				summaryId,
+			) as BranchSummaryEntry;
 
 			// Attach label to the summary entry
 			if (label) {
@@ -2741,7 +3106,9 @@ export class AgentSession {
 		return result;
 	}
 
-	private _extractUserMessageText(content: string | Array<{ type: string; text?: string }>): string {
+	private _extractUserMessageText(
+		content: string | Array<{ type: string; text?: string }>,
+	): string {
 		if (typeof content === "string") return content;
 		if (Array.isArray(content)) {
 			return content
@@ -2758,8 +3125,12 @@ export class AgentSession {
 	getSessionStats(): SessionStats {
 		const state = this.state;
 		const userMessages = state.messages.filter((m) => m.role === "user").length;
-		const assistantMessages = state.messages.filter((m) => m.role === "assistant").length;
-		const toolResults = state.messages.filter((m) => m.role === "toolResult").length;
+		const assistantMessages = state.messages.filter(
+			(m) => m.role === "assistant",
+		).length;
+		const toolResults = state.messages.filter(
+			(m) => m.role === "toolResult",
+		).length;
 
 		let toolCalls = 0;
 		let totalInput = 0;
@@ -2771,7 +3142,9 @@ export class AgentSession {
 		for (const message of state.messages) {
 			if (message.role === "assistant") {
 				const assistantMsg = message as AssistantMessage;
-				toolCalls += assistantMsg.content.filter((c) => c.type === "toolCall").length;
+				toolCalls += assistantMsg.content.filter(
+					(c) => c.type === "toolCall",
+				).length;
 				totalInput += assistantMsg.usage.input;
 				totalOutput += assistantMsg.usage.output;
 				totalCacheRead += assistantMsg.usage.cacheRead;
@@ -2793,7 +3166,13 @@ export class AgentSession {
 				output: Math.max(totalOutput, this._cumulativeOutputTokens),
 				cacheRead: totalCacheRead,
 				cacheWrite: totalCacheWrite,
-				total: Math.max(totalInput + totalOutput, this._cumulativeInputTokens + this._cumulativeOutputTokens) + totalCacheRead + totalCacheWrite,
+				total:
+					Math.max(
+						totalInput + totalOutput,
+						this._cumulativeInputTokens + this._cumulativeOutputTokens,
+					) +
+					totalCacheRead +
+					totalCacheWrite,
 			},
 			cost: Math.max(totalCost, this._cumulativeCost),
 		};
@@ -2828,7 +3207,10 @@ export class AgentSession {
 				const entry = branchEntries[i];
 				if (entry.type === "message" && entry.message.role === "assistant") {
 					const assistant = entry.message;
-					if (assistant.stopReason !== "aborted" && assistant.stopReason !== "error") {
+					if (
+						assistant.stopReason !== "aborted" &&
+						assistant.stopReason !== "error"
+					) {
 						const contextTokens = calculateContextTokens(assistant.usage);
 						if (contextTokens > 0) {
 							hasPostCompactionUsage = true;
@@ -2891,7 +3273,8 @@ export class AgentSession {
 				if (m.role !== "assistant") return false;
 				const msg = m as AssistantMessage;
 				// Skip aborted messages with no content
-				if (msg.stopReason === "aborted" && msg.content.length === 0) return false;
+				if (msg.stopReason === "aborted" && msg.content.length === 0)
+					return false;
 				return true;
 			});
 

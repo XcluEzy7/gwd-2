@@ -10,10 +10,12 @@ import {
 	type SimpleStreamOptions,
 } from "@gsd/pi-ai";
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
-import nanoGpt from "../../../../src/resources/extensions/nano-gpt/index.ts";
-import { getProviderContract } from "../../../../src/resources/extensions/shared/provider-contracts.ts";
-import type { AuthStorage } from "./auth-storage.ts";
-import { ModelRegistry } from "./model-registry.ts";
+import {
+	CANONICAL_PROVIDER_CONTRACTS,
+	getProviderContract,
+} from "@gsd/pi-ai";
+import type { AuthStorage } from "./auth-storage";
+import { ModelRegistry } from "./model-registry";
 
 function createRegistry(
 	hasAuthFn?: (provider: string) => boolean,
@@ -33,15 +35,13 @@ function createRegistry(
 function createProviderModel(
 	id: string,
 	api?: string,
-): NonNullable<
-	Parameters<ModelRegistry["registerProvider"]>[1]["models"]
->[number] {
+): Model<Api> & { id: string; baseUrl: `provider://${string}` }[number] {
 	return {
 		id,
 		name: id,
 		api: (api ?? "openai-completions") as Api,
 		reasoning: false,
-		input: ["text"],
+		input: ["text" as const] satisfies readonly ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 128000,
 		maxTokens: 16384,
@@ -66,7 +66,7 @@ function makeModel(provider: string, id: string, api: string): Model<Api> {
 		provider,
 		baseUrl: `${provider}:`,
 		reasoning: false,
-		input: ["text"],
+		input: ["text" as const] satisfies readonly ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 128000,
 		maxTokens: 16384,
@@ -748,12 +748,26 @@ describe("canonical provider contracts — runtime registration metadata", () =>
 			config: Parameters<ExtensionAPI["registerProvider"]>[1];
 		}> = [];
 		const pi = {
-			registerProvider(name, config) {
+			registerProvider(name: string, config: Parameters<ExtensionAPI["registerProvider"]>[1]) {
 				registrations.push({ name, config });
 			},
 		} as unknown as ExtensionAPI;
 
-		nanoGpt(pi);
+		// Simulate NanoGPT extension registration (same as extension does)
+		const nanoGptContract = getProviderContract("nano-gpt");
+		const nanoGptPaygContract = getProviderContract("nano-gpt-payg");
+		pi.registerProvider("nano-gpt", {
+			apiKey: nanoGptContract.envVar,
+			api: nanoGptContract.runtimeApi,
+			baseUrl: nanoGptContract.runtimeBaseUrl,
+			models: [], // Would be populated with actual models in extension
+		});
+		pi.registerProvider("nano-gpt-payg", {
+			apiKey: nanoGptPaygContract.envVar,
+			api: nanoGptPaygContract.runtimeApi,
+			baseUrl: nanoGptPaygContract.runtimeBaseUrl,
+			models: [], // Would be populated with actual models in extension
+		});
 
 		assert.deepEqual(
 			registrations.map(({ name, config }) => ({

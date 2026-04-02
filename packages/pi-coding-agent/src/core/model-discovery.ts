@@ -3,11 +3,6 @@
  * Each adapter implements ProviderDiscoveryAdapter to fetch models from provider APIs.
  */
 
-import {
-	getProviderDiscoveryTarget,
-	getProviderDiscoveryTtl,
-} from "../../../../src/resources/extensions/shared/provider-contracts.js";
-
 export interface DiscoveredModel {
 	id: string;
 	name?: string;
@@ -39,7 +34,7 @@ export interface ProviderDiscoveryAdapter {
 /** Per-provider TTLs in milliseconds */
 export const DISCOVERY_TTLS: Record<string, number> = {
 	ollama: 5 * 60 * 1000, // 5 minutes (local, models change often)
-	"ollama-cloud": getProviderDiscoveryTtl("ollama-cloud") ?? 60 * 60 * 1000,
+	"ollama-cloud": 60 * 60 * 1000, // 1 hour
 	openai: 60 * 60 * 1000, // 1 hour
 	google: 60 * 60 * 1000, // 1 hour
 	openrouter: 60 * 60 * 1000, // 1 hour
@@ -251,7 +246,7 @@ class OllamaCloudDiscoveryAdapter implements ProviderDiscoveryAdapter {
 		apiKey: string,
 		baseUrl?: string,
 	): Promise<DiscoveredModel[]> {
-		const url = baseUrl ?? getProviderDiscoveryTarget("ollama-cloud");
+		const url = baseUrl ?? "https://ollama.com/api/v1/models";
 		const headers: Record<string, string> = {};
 		if (apiKey) {
 			headers.Authorization = `Bearer ${apiKey}`;

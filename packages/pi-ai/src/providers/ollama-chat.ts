@@ -6,7 +6,7 @@
  * per-model override is provided.
  */
 
-import { getProviderRuntimeBaseUrl } from "../../../../src/resources/extensions/shared/provider-contracts.js";
+import { getProviderRuntimeBaseUrl } from "../shared/provider-contracts.js";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { calculateCost } from "../models.js";
 import type {
