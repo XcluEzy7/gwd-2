@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	getProviderContract,
+	getProviderDiscoveryTarget,
+	getProviderDiscoveryTtl,
+	shouldSendAuthorizationHeader,
+} from "../../../../src/resources/extensions/shared/provider-contracts.js";
+import {
 	DISCOVERY_TTLS,
 	getDefaultTTL,
 	getDiscoverableProviders,
@@ -95,8 +101,11 @@ describe("getDefaultTTL", () => {
 		assert.equal(getDefaultTTL("ollama"), 5 * 60 * 1000);
 	});
 
-	it("returns 1 hour for ollama-cloud", () => {
-		assert.equal(getDefaultTTL("ollama-cloud"), 60 * 60 * 1000);
+	it("returns contract ttl for ollama-cloud", () => {
+		assert.equal(
+			getDefaultTTL("ollama-cloud"),
+			getProviderDiscoveryTtl("ollama-cloud"),
+		);
 	});
 
 	it("returns 1 hour for openai", () => {
@@ -132,5 +141,42 @@ describe("DISCOVERY_TTLS", () => {
 			assert.equal(typeof value, "number");
 			assert.ok(value > 0);
 		}
+	});
+
+	it("pins ollama-cloud discovery target and ttl to the canonical contract", () => {
+		const contract = getProviderContract("ollama-cloud");
+		assert.equal(
+			getProviderDiscoveryTarget("ollama-cloud"),
+			contract.discovery.targetUrl,
+		);
+		assert.equal(
+			getProviderDiscoveryTtl("ollama-cloud"),
+			DISCOVERY_TTLS["ollama-cloud"],
+		);
+		assert.equal(contract.discovery.responseShape, "openai-model-list");
+	});
+
+	it("uses sentinel auth omission rules from the canonical contract", () => {
+		const sentinel = getProviderContract("ollama-cloud").sentinel?.signinValue;
+		assert.ok(sentinel);
+		assert.equal(
+			shouldSendAuthorizationHeader("ollama-cloud", sentinel),
+			false,
+		);
+		assert.equal(
+			shouldSendAuthorizationHeader("ollama-cloud", "real-key"),
+			true,
+		);
+	});
+
+	it("throws for providers without discovery targets", () => {
+		assert.throws(
+			() => getProviderDiscoveryTarget("nano-gpt"),
+			/no discovery target URL/,
+		);
+		assert.throws(
+			() => getProviderContract("unknown-provider"),
+			/Unknown canonical provider contract/,
+		);
 	});
 });

@@ -13,23 +13,26 @@
  */
 
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
-import { getProviderRuntimeBaseUrl } from "../shared/provider-contracts.js";
-import { NANOGPT_SUBSCRIPTION_MODELS, NANOGPT_PAID_MODELS } from "./models.js";
+import { getProviderContract } from "../shared/provider-contracts.js";
+import { NANOGPT_PAID_MODELS, NANOGPT_SUBSCRIPTION_MODELS } from "./models.js";
 
 export default function nanoGpt(pi: ExtensionAPI) {
-    // Register subscription-tier provider (models included in NanoGPT subscription)
-    pi.registerProvider("nano-gpt", {
-        apiKey: "NANOGPT_API_KEY",
-        api: "openai-completions",
-        baseUrl: getProviderRuntimeBaseUrl("nano-gpt"),
-        models: NANOGPT_SUBSCRIPTION_MODELS,
-    });
+	const subscriptionContract = getProviderContract("nano-gpt");
+	const paygContract = getProviderContract("nano-gpt-payg");
 
-    // Register pay-as-you-go tier (premium models, charged per token)
-    pi.registerProvider("nano-gpt-payg", {
-        apiKey: "NANOGPT_API_KEY",
-        api: "openai-completions",
-        baseUrl: getProviderRuntimeBaseUrl("nano-gpt-payg"),
-        models: NANOGPT_PAID_MODELS,
-    });
+	// Register subscription-tier provider (models included in NanoGPT subscription)
+	pi.registerProvider("nano-gpt", {
+		apiKey: subscriptionContract.envVar,
+		api: subscriptionContract.runtimeApi,
+		baseUrl: subscriptionContract.runtimeBaseUrl,
+		models: NANOGPT_SUBSCRIPTION_MODELS,
+	});
+
+	// Register pay-as-you-go tier (premium models, charged per token)
+	pi.registerProvider("nano-gpt-payg", {
+		apiKey: paygContract.envVar,
+		api: paygContract.runtimeApi,
+		baseUrl: paygContract.runtimeBaseUrl,
+		models: NANOGPT_PAID_MODELS,
+	});
 }
