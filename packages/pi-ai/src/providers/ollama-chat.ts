@@ -11,7 +11,6 @@ import { calculateCost } from "../models.js";
 import type {
 	AssistantMessage,
 	Context,
-	Message,
 	Model,
 	SimpleStreamOptions,
 	StreamFunction,
@@ -26,20 +25,40 @@ import { parseStreamingJson } from "../utils/json-parse.js";
 import { buildBaseOptions } from "./simple-options.js";
 
 const OLLAMA_CLOUD_BASE_URL = "https://ollama.com/api";
+const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
+const OLLAMA_SIGNIN_SENTINEL = "ollama-signin";
 
 interface OllamaChatOptions extends StreamOptions {
 	keepAlive?: string;
 	numCtx?: number;
 }
 
-function getBaseUrl(model: Model<"ollama-chat">): string {
+function getLocalOllamaHost(): string {
+	const host = process.env.OLLAMA_HOST;
+	if (!host) return DEFAULT_OLLAMA_HOST;
+	if (host.startsWith("http://") || host.startsWith("https://")) return host;
+	return `http://${host}`;
+}
+
+function getBaseUrl(model: Model<"ollama-chat">, apiKey?: string): string {
+	if (apiKey === OLLAMA_SIGNIN_SENTINEL) return getLocalOllamaHost();
 	if (model.baseUrl) return model.baseUrl;
 	return OLLAMA_CLOUD_BASE_URL;
 }
 
-function buildHeaders(apiKey: string | undefined, model: Model<"ollama-chat">): Record<string, string> {
-	const headers: Record<string, string> = { "Content-Type": "application/json" };
-	if (apiKey && apiKey !== "ollama" && apiKey !== "local-no-key-needed") {
+function buildHeaders(
+	apiKey: string | undefined,
+	model: Model<"ollama-chat">,
+): Record<string, string> {
+	const headers: Record<string, string> = {
+		"Content-Type": "application/json",
+	};
+	if (
+		apiKey &&
+		apiKey !== "ollama" &&
+		apiKey !== "local-no-key-needed" &&
+		apiKey !== OLLAMA_SIGNIN_SENTINEL
+	) {
 		headers.Authorization = `Bearer ${apiKey}`;
 	}
 	if (model.headers) {
@@ -51,8 +70,11 @@ function buildHeaders(apiKey: string | undefined, model: Model<"ollama-chat">): 
 interface OllamaMessage {
 	role: "system" | "user" | "assistant" | "tool";
 	content: string;
+	thinking?: string;
 	images?: string[];
-	tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
+	tool_calls?: Array<{
+		function: { name: string; arguments: Record<string, unknown> };
+	}>;
 }
 
 interface OllamaTool {
@@ -87,39 +109,52 @@ function convertMessages(context: Context): OllamaMessage[] {
 					}
 				}
 			}
-			const ollamaMsg: OllamaMessage = { role: "user", content: textParts.join("\n") };
+			const ollamaMsg: OllamaMessage = {
+				role: "user",
+				content: textParts.join("\n"),
+			};
 			if (images.length > 0) ollamaMsg.images = images;
 			result.push(ollamaMsg);
 		} else if (msg.role === "assistant") {
 			const assistantMsg = msg as AssistantMessage;
 			const textParts: string[] = [];
-			const toolCalls: Array<{ function: { name: string; arguments: Record<string, unknown> } }> = [];
+			const thinkingParts: string[] = [];
+			const toolCalls: Array<{
+				function: { name: string; arguments: Record<string, unknown> };
+			}> = [];
 			for (const block of assistantMsg.content) {
 				if (block.type === "text") {
 					textParts.push(block.text);
 				} else if (block.type === "thinking" && block.thinking) {
-					textParts.push(`<think>${block.thinking}</think>`);
+					thinkingParts.push(block.thinking);
 				} else if (block.type === "toolCall") {
 					const tc = block as ToolCall;
 					toolCalls.push({
 						function: {
 							name: tc.name,
-							arguments: typeof tc.arguments === "string"
-								? JSON.parse(tc.arguments)
-								: tc.arguments,
+							arguments:
+								typeof tc.arguments === "string"
+									? JSON.parse(tc.arguments)
+									: tc.arguments,
 						},
 					});
 				}
 			}
-			const ollamaMsg: OllamaMessage = { role: "assistant", content: textParts.join("\n") };
+			const ollamaMsg: OllamaMessage = {
+				role: "assistant",
+				content: textParts.join("\n"),
+			};
+			if (thinkingParts.length > 0)
+				ollamaMsg.thinking = thinkingParts.join("\n\n");
 			if (toolCalls.length > 0) ollamaMsg.tool_calls = toolCalls;
 			result.push(ollamaMsg);
 		} else if (msg.role === "toolResult") {
 			result.push({
 				role: "tool",
-				content: typeof msg.content === "string"
-					? msg.content
-					: JSON.stringify(msg.content),
+				content:
+					typeof msg.content === "string"
+						? msg.content
+						: JSON.stringify(msg.content),
 			});
 		}
 	}
@@ -157,7 +192,10 @@ function buildInitialOutput(model: Model<"ollama-chat">): AssistantMessage {
 	};
 }
 
-export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> = (
+export const streamOllamaChat: StreamFunction<
+	"ollama-chat",
+	OllamaChatOptions
+> = (
 	model: Model<"ollama-chat">,
 	context: Context,
 	options?: OllamaChatOptions,
@@ -169,7 +207,7 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 
 		try {
 			const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
-			const baseUrl = getBaseUrl(model);
+			const baseUrl = getBaseUrl(model, apiKey);
 			const headers = buildHeaders(apiKey, model);
 			if (options?.headers) Object.assign(headers, options.headers);
 
@@ -184,14 +222,16 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 			}
 
 			const runtimeOptions: Record<string, unknown> = {};
-			if (options?.temperature !== undefined) runtimeOptions.temperature = options.temperature;
+			if (options?.temperature !== undefined)
+				runtimeOptions.temperature = options.temperature;
 			if (options?.maxTokens) runtimeOptions.num_predict = options.maxTokens;
-			if ((options as OllamaChatOptions)?.numCtx) runtimeOptions.num_ctx = (options as OllamaChatOptions).numCtx;
-			if (model.contextWindow) runtimeOptions.num_ctx = runtimeOptions.num_ctx ?? model.contextWindow;
+			if (options?.numCtx) runtimeOptions.num_ctx = options.numCtx;
+			if (model.contextWindow)
+				runtimeOptions.num_ctx = runtimeOptions.num_ctx ?? model.contextWindow;
 			if (Object.keys(runtimeOptions).length > 0) body.options = runtimeOptions;
 
-			if ((options as OllamaChatOptions)?.keepAlive) {
-				body.keep_alive = (options as OllamaChatOptions).keepAlive;
+			if (options?.keepAlive) {
+				body.keep_alive = options.keepAlive;
 			}
 
 			const nextBody = await options?.onPayload?.(body, model);
@@ -218,21 +258,39 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
-			let currentBlock: TextContent | ThinkingContent | (ToolCall & { partialArgs?: string }) | null = null;
+			let currentBlock:
+				| TextContent
+				| ThinkingContent
+				| (ToolCall & { partialArgs?: string })
+				| null = null;
 			const blocks = output.content;
 			const blockIndex = () => blocks.length - 1;
-			let inThinkingBlock = false;
 
 			const finishCurrentBlock = (block?: typeof currentBlock) => {
 				if (block) {
 					if (block.type === "text") {
-						stream.push({ type: "text_end", contentIndex: blockIndex(), content: block.text, partial: output });
+						stream.push({
+							type: "text_end",
+							contentIndex: blockIndex(),
+							content: block.text,
+							partial: output,
+						});
 					} else if (block.type === "thinking") {
-						stream.push({ type: "thinking_end", contentIndex: blockIndex(), content: block.thinking, partial: output });
+						stream.push({
+							type: "thinking_end",
+							contentIndex: blockIndex(),
+							content: block.thinking,
+							partial: output,
+						});
 					} else if (block.type === "toolCall") {
 						block.arguments = parseStreamingJson(block.partialArgs);
 						delete block.partialArgs;
-						stream.push({ type: "toolcall_end", contentIndex: blockIndex(), toolCall: block, partial: output });
+						stream.push({
+							type: "toolcall_end",
+							contentIndex: blockIndex(),
+							toolCall: block,
+							partial: output,
+						});
 					}
 				}
 			};
@@ -256,7 +314,14 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 						continue;
 					}
 
-					const message = chunk.message as { role?: string; content?: string; tool_calls?: unknown[] } | undefined;
+					const message = chunk.message as
+						| {
+								role?: string;
+								content?: string;
+								thinking?: string;
+								tool_calls?: unknown[];
+						  }
+						| undefined;
 					const isDone = chunk.done === true;
 
 					if (isDone) {
@@ -268,7 +333,13 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 							cacheRead: 0,
 							cacheWrite: 0,
 							totalTokens: promptTokens + evalTokens,
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+							cost: {
+								input: 0,
+								output: 0,
+								cacheRead: 0,
+								cacheWrite: 0,
+								total: 0,
+							},
 						};
 						calculateCost(model, output.usage);
 
@@ -279,70 +350,59 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 						}
 					}
 
+					if (message?.thinking) {
+						const thinking = message.thinking as string;
+						if (!currentBlock || currentBlock.type !== "thinking") {
+							finishCurrentBlock(currentBlock);
+							currentBlock = { type: "thinking", thinking: "" };
+							output.content.push(currentBlock);
+							stream.push({
+								type: "thinking_start",
+								contentIndex: blockIndex(),
+								partial: output,
+							});
+						}
+
+						if (currentBlock.type === "thinking") {
+							currentBlock.thinking += thinking;
+							stream.push({
+								type: "thinking_delta",
+								contentIndex: blockIndex(),
+								delta: thinking,
+								partial: output,
+							});
+						}
+					}
+
 					if (message?.content) {
 						const content = message.content as string;
-
-						// Handle <think> blocks from reasoning models
-						if (content.includes("<think>") && !inThinkingBlock) {
-							inThinkingBlock = true;
-							const thinkStart = content.indexOf("<think>") + 7;
-							const thinkContent = content.slice(thinkStart);
-
-							finishCurrentBlock(currentBlock);
-							currentBlock = { type: "thinking", thinking: thinkContent };
-							output.content.push(currentBlock);
-							stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
-							if (thinkContent) {
-								stream.push({ type: "thinking_delta", contentIndex: blockIndex(), delta: thinkContent, partial: output });
-							}
-							continue;
-						}
-
-						if (content.includes("</think>") && inThinkingBlock) {
-							inThinkingBlock = false;
-							const endIdx = content.indexOf("</think>");
-							const thinkPart = content.slice(0, endIdx);
-							const textPart = content.slice(endIdx + 8);
-
-							if (thinkPart && currentBlock?.type === "thinking") {
-								currentBlock.thinking += thinkPart;
-								stream.push({ type: "thinking_delta", contentIndex: blockIndex(), delta: thinkPart, partial: output });
-							}
-							finishCurrentBlock(currentBlock);
-
-							if (textPart) {
-								currentBlock = { type: "text", text: textPart };
-								output.content.push(currentBlock);
-								stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
-								stream.push({ type: "text_delta", contentIndex: blockIndex(), delta: textPart, partial: output });
-							} else {
-								currentBlock = null;
-							}
-							continue;
-						}
-
-						if (inThinkingBlock && currentBlock?.type === "thinking") {
-							currentBlock.thinking += content;
-							stream.push({ type: "thinking_delta", contentIndex: blockIndex(), delta: content, partial: output });
-							continue;
-						}
-
 						if (!currentBlock || currentBlock.type !== "text") {
 							finishCurrentBlock(currentBlock);
 							currentBlock = { type: "text", text: "" };
 							output.content.push(currentBlock);
-							stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
+							stream.push({
+								type: "text_start",
+								contentIndex: blockIndex(),
+								partial: output,
+							});
 						}
 
 						if (currentBlock.type === "text") {
 							currentBlock.text += content;
-							stream.push({ type: "text_delta", contentIndex: blockIndex(), delta: content, partial: output });
+							stream.push({
+								type: "text_delta",
+								contentIndex: blockIndex(),
+								delta: content,
+								partial: output,
+							});
 						}
 					}
 
 					if (message?.tool_calls && Array.isArray(message.tool_calls)) {
 						for (const tc of message.tool_calls) {
-							const fn = (tc as { function?: { name?: string; arguments?: unknown } }).function;
+							const fn = (
+								tc as { function?: { name?: string; arguments?: unknown } }
+							).function;
 							if (!fn?.name) continue;
 
 							finishCurrentBlock(currentBlock);
@@ -355,7 +415,11 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 							};
 							currentBlock = toolCall;
 							output.content.push(toolCall);
-							stream.push({ type: "toolcall_start", contentIndex: blockIndex(), partial: output });
+							stream.push({
+								type: "toolcall_start",
+								contentIndex: blockIndex(),
+								partial: output,
+							});
 							finishCurrentBlock(currentBlock);
 							currentBlock = null;
 							output.stopReason = "toolUse";
@@ -364,7 +428,6 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 				}
 			}
 
-			// Process remaining buffer
 			if (buffer.trim()) {
 				try {
 					const chunk = JSON.parse(buffer.trim());
@@ -377,17 +440,26 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 							cacheRead: 0,
 							cacheWrite: 0,
 							totalTokens: promptTokens + evalTokens,
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+							cost: {
+								input: 0,
+								output: 0,
+								cacheRead: 0,
+								cacheWrite: 0,
+								total: 0,
+							},
 						};
 						calculateCost(model, output.usage);
 					}
-				} catch { /* ignore */ }
+				} catch {
+					/* ignore */
+				}
 			}
 
 			finishCurrentBlock(currentBlock);
 			stream.end(output);
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
 			output.stopReason = "error";
 			output.errorMessage = errorMessage;
 			stream.push({ type: "error", reason: "error", error: output });
@@ -398,7 +470,10 @@ export const streamOllamaChat: StreamFunction<"ollama-chat", OllamaChatOptions> 
 	return stream;
 };
 
-export const streamSimpleOllamaChat: StreamFunction<"ollama-chat", SimpleStreamOptions> = (
+export const streamSimpleOllamaChat: StreamFunction<
+	"ollama-chat",
+	SimpleStreamOptions
+> = (
 	model: Model<"ollama-chat">,
 	context: Context,
 	options?: SimpleStreamOptions,

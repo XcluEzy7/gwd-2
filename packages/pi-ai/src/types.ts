@@ -88,7 +88,10 @@ export interface StreamOptions {
 	 * Optional callback for inspecting or replacing provider payloads before sending.
 	 * Return undefined to keep the payload unchanged.
 	 */
-	onPayload?: (payload: unknown, model: Model<Api>) => unknown | undefined | Promise<unknown | undefined>;
+	onPayload?: (
+		payload: unknown,
+		model: Model<Api>,
+	) => unknown | undefined | Promise<unknown | undefined>;
 	/**
 	 * Optional custom HTTP headers to include in API requests.
 	 * Merged with provider defaults; can override default headers.
@@ -121,7 +124,10 @@ export interface SimpleStreamOptions extends StreamOptions {
 }
 
 // Generic StreamFunction with typed options
-export type StreamFunction<TApi extends Api = Api, TOptions extends StreamOptions = StreamOptions> = (
+export type StreamFunction<
+	TApi extends Api = Api,
+	TOptions extends StreamOptions = StreamOptions,
+> = (
 	model: Model<TApi>,
 	context: Context,
 	options?: TOptions,
@@ -194,7 +200,13 @@ export interface Usage {
 	};
 }
 
-export type StopReason = "stop" | "length" | "toolUse" | "pauseTurn" | "error" | "aborted";
+export type StopReason =
+	| "stop"
+	| "length"
+	| "toolUse"
+	| "pauseTurn"
+	| "error"
+	| "aborted";
 
 export interface UserMessage {
 	role: "user";
@@ -204,7 +216,13 @@ export interface UserMessage {
 
 export interface AssistantMessage {
 	role: "assistant";
-	content: (TextContent | ThinkingContent | ToolCall | ServerToolUseContent | WebSearchResultContent)[];
+	content: (
+		| TextContent
+		| ThinkingContent
+		| ToolCall
+		| ServerToolUseContent
+		| WebSearchResultContent
+	)[];
 	api: Api;
 	provider: Provider;
 	model: string;
@@ -245,18 +263,61 @@ export interface Context {
 export type AssistantMessageEvent =
 	| { type: "start"; partial: AssistantMessage }
 	| { type: "text_start"; contentIndex: number; partial: AssistantMessage }
-	| { type: "text_delta"; contentIndex: number; delta: string; partial: AssistantMessage }
-	| { type: "text_end"; contentIndex: number; content: string; partial: AssistantMessage }
+	| {
+			type: "text_delta";
+			contentIndex: number;
+			delta: string;
+			partial: AssistantMessage;
+	  }
+	| {
+			type: "text_end";
+			contentIndex: number;
+			content: string;
+			partial: AssistantMessage;
+	  }
 	| { type: "thinking_start"; contentIndex: number; partial: AssistantMessage }
-	| { type: "thinking_delta"; contentIndex: number; delta: string; partial: AssistantMessage }
-	| { type: "thinking_end"; contentIndex: number; content: string; partial: AssistantMessage }
+	| {
+			type: "thinking_delta";
+			contentIndex: number;
+			delta: string;
+			partial: AssistantMessage;
+	  }
+	| {
+			type: "thinking_end";
+			contentIndex: number;
+			content: string;
+			partial: AssistantMessage;
+	  }
 	| { type: "toolcall_start"; contentIndex: number; partial: AssistantMessage }
-	| { type: "toolcall_delta"; contentIndex: number; delta: string; partial: AssistantMessage }
-	| { type: "toolcall_end"; contentIndex: number; toolCall: ToolCall; partial: AssistantMessage; malformedArguments?: boolean }
+	| {
+			type: "toolcall_delta";
+			contentIndex: number;
+			delta: string;
+			partial: AssistantMessage;
+	  }
+	| {
+			type: "toolcall_end";
+			contentIndex: number;
+			toolCall: ToolCall;
+			partial: AssistantMessage;
+			malformedArguments?: boolean;
+	  }
 	| { type: "server_tool_use"; contentIndex: number; partial: AssistantMessage }
-	| { type: "web_search_result"; contentIndex: number; partial: AssistantMessage }
-	| { type: "done"; reason: Extract<StopReason, "stop" | "length" | "toolUse" | "pauseTurn">; message: AssistantMessage }
-	| { type: "error"; reason: Extract<StopReason, "aborted" | "error">; error: AssistantMessage };
+	| {
+			type: "web_search_result";
+			contentIndex: number;
+			partial: AssistantMessage;
+	  }
+	| {
+			type: "done";
+			reason: Extract<StopReason, "stop" | "length" | "toolUse" | "pauseTurn">;
+			message: AssistantMessage;
+	  }
+	| {
+			type: "error";
+			reason: Extract<StopReason, "aborted" | "error">;
+			error: AssistantMessage;
+	  };
 
 /**
  * Compatibility settings for OpenAI-compatible completions APIs.
@@ -281,6 +342,8 @@ export interface OpenAICompletionsCompat {
 	requiresAssistantAfterToolResult?: boolean;
 	/** Whether thinking blocks must be converted to text blocks with <thinking> delimiters. Default: auto-detected from URL. */
 	requiresThinkingAsText?: boolean;
+	/** Whether prior assistant thinking may be replayed back as custom request fields such as `reasoning` or `reasoning_content`. Default: true. */
+	supportsReasoningFieldReplay?: boolean;
 	/** Format for reasoning/thinking parameter. "openai" uses reasoning_effort, "zai" uses thinking: { type: "enabled" }, "qwen" uses enable_thinking: boolean. Default: "openai". */
 	thinkingFormat?: "openai" | "zai" | "qwen";
 	/** OpenRouter-specific routing preferences. Only used when baseUrl points to OpenRouter. */
@@ -292,9 +355,7 @@ export interface OpenAICompletionsCompat {
 }
 
 /** Compatibility settings for OpenAI Responses APIs. */
-export interface OpenAIResponsesCompat {
-	// Reserved for future use
-}
+export type OpenAIResponsesCompat = {};
 
 /**
  * OpenRouter provider routing preferences.
