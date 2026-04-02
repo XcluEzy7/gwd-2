@@ -1,6 +1,14 @@
 import type { Model } from "@gsd/pi-ai";
 
-export async function handleModelCommand(host: any, searchTerm?: string): Promise<void> {
+export interface ModelCandidateOptions {
+	force?: boolean;
+	includeScopedSessionModels?: boolean;
+}
+
+export async function handleModelCommand(
+	host: any,
+	searchTerm?: string,
+): Promise<void> {
 	if (!searchTerm) {
 		host.showModelSelector();
 		return;
@@ -23,7 +31,10 @@ export async function handleModelCommand(host: any, searchTerm?: string): Promis
 	host.showModelSelector(searchTerm);
 }
 
-export async function findExactModelMatch(host: any, searchTerm: string): Promise<Model<any> | undefined> {
+export async function findExactModelMatch(
+	host: any,
+	searchTerm: string,
+): Promise<Model<any> | undefined> {
 	const term = searchTerm.trim();
 	if (!term) return undefined;
 
@@ -43,29 +54,47 @@ export async function findExactModelMatch(host: any, searchTerm: string): Promis
 	const models = await getModelCandidates(host);
 	const exactMatches = models.filter((item) => {
 		const idMatch = item.id.toLowerCase() === targetModelId;
-		const providerMatch = !targetProvider || item.provider.toLowerCase() === targetProvider;
+		const providerMatch =
+			!targetProvider || item.provider.toLowerCase() === targetProvider;
 		return idMatch && providerMatch;
 	});
 
 	return exactMatches.length === 1 ? exactMatches[0] : undefined;
 }
 
-export async function getModelCandidates(host: any): Promise<Model<any>[]> {
-	if (host.session.scopedModels.length > 0) {
+export async function prepareModelCandidates(
+	host: any,
+	options: ModelCandidateOptions = {},
+): Promise<Model<any>[]> {
+	if (
+		options.includeScopedSessionModels !== false &&
+		host.session.scopedModels.length > 0
+	) {
 		return host.session.scopedModels.map((scoped: any) => scoped.model);
 	}
 
-	host.session.modelRegistry.refresh();
 	try {
-		return await host.session.modelRegistry.getAvailable();
+		await host.session.modelRegistry.prepareDiscoveryRefresh({
+			force: options.force,
+		});
+		return host.session.modelRegistry
+			.getAllWithDiscovered()
+			.filter((model: Model<any>) =>
+				host.session.modelRegistry.isProviderRequestReady(model.provider),
+			);
 	} catch {
 		return [];
 	}
 }
 
+export async function getModelCandidates(host: any): Promise<Model<any>[]> {
+	return prepareModelCandidates(host);
+}
+
 export async function updateAvailableProviderCount(host: any): Promise<void> {
-	const models = await getModelCandidates(host);
+	const models = await prepareModelCandidates(host, {
+		includeScopedSessionModels: false,
+	});
 	const uniqueProviders = new Set(models.map((m) => m.provider));
 	host.footerDataProvider.setAvailableProviderCount(uniqueProviders.size);
 }
-

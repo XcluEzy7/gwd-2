@@ -131,6 +131,7 @@ import {
 	findExactModelMatch as findExactModelMatchController,
 	getModelCandidates as getModelCandidatesController,
 	handleModelCommand as handleModelCommandController,
+	prepareModelCandidates as prepareModelCandidatesController,
 	updateAvailableProviderCount as updateAvailableProviderCountController,
 } from "./controllers/model-controller.js";
 import {
@@ -2245,7 +2246,9 @@ export class InteractiveMode {
 
 		// Global debug handler on TUI (works regardless of focus)
 		this.ui.onDebug = () => this.handleDebugCommand();
-		this.defaultEditor.onAction("selectModel", () => this.showModelSelector());
+		this.defaultEditor.onAction("selectModel", () => {
+			void this.showModelSelector();
+		});
 		this.defaultEditor.onAction("expandTools", () =>
 			this.toggleToolOutputExpansion(),
 		);
@@ -3423,12 +3426,20 @@ export class InteractiveMode {
 		return getModelCandidatesController(this);
 	}
 
+	private async prepareModelCandidates(options?: {
+		force?: boolean;
+		includeScopedSessionModels?: boolean;
+	}): Promise<Model<any>[]> {
+		return prepareModelCandidatesController(this, options);
+	}
+
 	/** Update the footer's available provider count from current model candidates */
 	private async updateAvailableProviderCount(): Promise<void> {
 		await updateAvailableProviderCountController(this);
 	}
 
-	private showModelSelector(initialSearchInput?: string): void {
+	private async showModelSelector(initialSearchInput?: string): Promise<void> {
+		await this.prepareModelCandidates();
 		this.showSelector((done) => {
 			const selector = new ModelSelectorComponent(
 				this.ui,
@@ -3462,9 +3473,9 @@ export class InteractiveMode {
 	}
 
 	private async showModelsSelector(): Promise<void> {
-		// Get all available models
-		this.session.modelRegistry.refresh();
-		const allModels = this.session.modelRegistry.getAvailable();
+		const allModels = await this.prepareModelCandidates({
+			includeScopedSessionModels: false,
+		});
 
 		if (allModels.length === 0) {
 			this.showStatus("No models available");
@@ -3985,7 +3996,7 @@ export class InteractiveMode {
 				type: "api_key",
 				key: apiKey.trim(),
 			});
-			this.session.modelRegistry.refresh();
+			await this.session.modelRegistry.prepareDiscoveryRefresh({ force: true });
 			await this.updateAvailableProviderCount();
 
 			this.showStatus(`API key saved for ${providerName}`);
@@ -4073,7 +4084,7 @@ export class InteractiveMode {
 
 			// Success
 			restoreEditor();
-			this.session.modelRegistry.refresh();
+			await this.session.modelRegistry.prepareDiscoveryRefresh({ force: true });
 			await this.updateAvailableProviderCount();
 
 			// Auto-switch model if current model has no valid API key

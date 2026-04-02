@@ -126,7 +126,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			this.scopeHintText = new Text(this.getScopeHintText(), 0, 0);
 			this.addChild(this.scopeHintText);
 		} else {
-			const hintText = "Only showing models with configured API keys (see README for details)";
+			const hintText =
+				"Only showing models with configured API keys (see README for details)";
 			this.addChild(new Text(theme.fg("warning", hintText), 0, 0));
 		}
 		this.addChild(new Spacer(1));
@@ -177,10 +178,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	private async loadModels(): Promise<void> {
 		let models: ModelItem[];
 
-		// Refresh to pick up any changes to models.json
-		this.modelRegistry.refresh();
-
-		// Check for models.json errors
+		// Check for models.json errors from the already-prepared registry state
 		const loadError = this.modelRegistry.getError();
 		if (loadError) {
 			this.errorMessage = loadError;
@@ -201,7 +199,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			this.filteredModels = [];
 			this.groupedRows = [];
 			this.modelRowIndices = [];
-			this.errorMessage = error instanceof Error ? error.message : String(error);
+			this.errorMessage =
+				error instanceof Error ? error.message : String(error);
 			return;
 		}
 
@@ -213,7 +212,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 				model: scoped.model,
 			})),
 		);
-		this.activeModels = this.scope === "scoped" ? this.scopedModelItems : this.allModels;
+		this.activeModels =
+			this.scope === "scoped" ? this.scopedModelItems : this.allModels;
 		this.filteredModels = this.activeModels;
 	}
 
@@ -287,7 +287,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		// Find the current model in grouped rows
 		for (let i = 0; i < this.groupedRows.length; i++) {
 			const row = this.groupedRows[i];
-			if (row.kind === "model" && modelsAreEqual(this.currentModel, row.item.model)) {
+			if (
+				row.kind === "model" &&
+				modelsAreEqual(this.currentModel, row.item.model)
+			) {
 				this.selectedGroupIndex = i;
 				return;
 			}
@@ -310,8 +313,14 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	}
 
 	private getScopeText(): string {
-		const allText = this.scope === "all" ? theme.fg("accent", "all") : theme.fg("muted", "all");
-		const scopedText = this.scope === "scoped" ? theme.fg("accent", "scoped") : theme.fg("muted", "scoped");
+		const allText =
+			this.scope === "all"
+				? theme.fg("accent", "all")
+				: theme.fg("muted", "all");
+		const scopedText =
+			this.scope === "scoped"
+				? theme.fg("accent", "scoped")
+				: theme.fg("muted", "scoped");
 		return `${theme.fg("muted", "Scope: ")}${allText}${theme.fg("muted", " | ")}${scopedText}`;
 	}
 
@@ -322,7 +331,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	private setScope(scope: ModelScope): void {
 		if (this.scope === scope) return;
 		this.scope = scope;
-		this.activeModels = this.scope === "scoped" ? this.scopedModelItems : this.allModels;
+		this.activeModels =
+			this.scope === "scoped" ? this.scopedModelItems : this.allModels;
 
 		if (this.isSearching) {
 			this.selectedFlatIndex = 0;
@@ -340,9 +350,16 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
 	private filterModels(query: string): void {
 		this.filteredModels = query
-			? fuzzyFilter(this.activeModels, query, ({ id, provider }) => `${id} ${provider}`)
+			? fuzzyFilter(
+					this.activeModels,
+					query,
+					({ id, provider }) => `${id} ${provider}`,
+				)
 			: this.activeModels;
-		this.selectedFlatIndex = Math.min(this.selectedFlatIndex, Math.max(0, this.filteredModels.length - 1));
+		this.selectedFlatIndex = Math.min(
+			this.selectedFlatIndex,
+			Math.max(0, this.filteredModels.length - 1),
+		);
 		this.updateList();
 	}
 
@@ -369,7 +386,9 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		const maxVisible = 10;
 
 		if (this.filteredModels.length === 0) {
-			this.listContainer.addChild(new Text(theme.fg("muted", "  No matching models"), 0, 0));
+			this.listContainer.addChild(
+				new Text(theme.fg("muted", "  No matching models"), 0, 0),
+			);
 			return;
 		}
 
@@ -380,7 +399,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
 				this.filteredModels.length - maxVisible,
 			),
 		);
-		const endIndex = Math.min(startIndex + maxVisible, this.filteredModels.length);
+		const endIndex = Math.min(
+			startIndex + maxVisible,
+			this.filteredModels.length,
+		);
 
 		for (let i = startIndex; i < endIndex; i++) {
 			const item = this.filteredModels[i];
@@ -407,7 +429,14 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
 		if (startIndex > 0 || endIndex < this.filteredModels.length) {
 			this.listContainer.addChild(
-				new Text(theme.fg("muted", `  (${this.selectedFlatIndex + 1}/${this.filteredModels.length})`), 0, 0),
+				new Text(
+					theme.fg(
+						"muted",
+						`  (${this.selectedFlatIndex + 1}/${this.filteredModels.length})`,
+					),
+					0,
+					0,
+				),
 			);
 		}
 
@@ -415,7 +444,13 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		const selected = this.filteredModels[this.selectedFlatIndex];
 		if (selected) {
 			this.listContainer.addChild(new Spacer(1));
-			this.listContainer.addChild(new Text(theme.fg("muted", `  ${this.modelDetailLine(selected.model)}`), 0, 0));
+			this.listContainer.addChild(
+				new Text(
+					theme.fg("muted", `  ${this.modelDetailLine(selected.model)}`),
+					0,
+					0,
+				),
+			);
 		}
 	}
 
@@ -427,7 +462,9 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		const maxVisible = 12;
 
 		if (this.groupedRows.length === 0) {
-			this.listContainer.addChild(new Text(theme.fg("muted", "  No models available"), 0, 0));
+			this.listContainer.addChild(
+				new Text(theme.fg("muted", "  No models available"), 0, 0),
+			);
 			return;
 		}
 
@@ -453,7 +490,9 @@ export class ModelSelectorComponent extends Container implements Focusable {
 				if (i > startIndex) {
 					this.listContainer.addChild(new Text("", 0, 0));
 				}
-				this.listContainer.addChild(new Text(`  ${providerLabel}${count}`, 0, 0));
+				this.listContainer.addChild(
+					new Text(`  ${providerLabel}${count}`, 0, 0),
+				);
 			} else {
 				// Model row
 				const isSelected = i === this.selectedGroupIndex;
@@ -476,7 +515,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
 		// Scroll indicator
 		if (startIndex > 0 || endIndex < this.groupedRows.length) {
-			const modelPos = this.modelRowIndices.indexOf(this.selectedGroupIndex) + 1;
+			const modelPos =
+				this.modelRowIndices.indexOf(this.selectedGroupIndex) + 1;
 			const totalModels = this.modelRowIndices.length;
 			this.listContainer.addChild(
 				new Text(theme.fg("muted", `  (${modelPos}/${totalModels})`), 0, 0),
@@ -488,7 +528,11 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		if (selectedModel) {
 			this.listContainer.addChild(new Spacer(1));
 			this.listContainer.addChild(
-				new Text(theme.fg("muted", `  ${this.modelDetailLine(selectedModel)}`), 0, 0),
+				new Text(
+					theme.fg("muted", `  ${this.modelDetailLine(selectedModel)}`),
+					0,
+					0,
+				),
 			);
 		}
 	}
@@ -615,7 +659,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		// Wrap
 		if (next >= this.groupedRows.length) next = 0;
 		// Skip headers
-		while (next < this.groupedRows.length - 1 && this.groupedRows[next]?.kind === "header") {
+		while (
+			next < this.groupedRows.length - 1 &&
+			this.groupedRows[next]?.kind === "header"
+		) {
 			next++;
 		}
 		// If landed on header at end, wrap to first model
