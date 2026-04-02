@@ -43,6 +43,7 @@ import {
 export interface PrepareDiscoveryOptions {
 	providers?: string[];
 	force?: boolean;
+	minTimeSinceLastFetchMs?: number;
 }
 
 export interface DiscoveryPreparationResult extends DiscoveryResult {
@@ -949,9 +950,17 @@ export class ModelRegistry {
 
 		const targetProviders = options.providers ?? getDiscoverableProviders();
 		const results: DiscoveryPreparationResult[] = [];
+		const now = Date.now();
 
 		for (const providerName of targetProviders) {
 			const adapter = getDiscoveryAdapter(providerName);
+			const cached = this.discoveryCache.get(providerName);
+			const withinCadenceWindow =
+				!options.force &&
+				cached !== undefined &&
+				typeof options.minTimeSinceLastFetchMs === "number" &&
+				options.minTimeSinceLastFetchMs > 0 &&
+				now - cached.fetchedAt < options.minTimeSinceLastFetchMs;
 			if (!adapter.supportsDiscovery) {
 				results.push({
 					provider: providerName,
@@ -962,8 +971,12 @@ export class ModelRegistry {
 				continue;
 			}
 
-			if (!options.force && !this.discoveryCache.isStale(providerName)) {
-				const cached = this.discoveryCache.get(providerName);
+			if (
+				(!options.force &&
+					cached &&
+					!this.discoveryCache.isStale(providerName)) ||
+				withinCadenceWindow
+			) {
 				if (cached) {
 					results.push({
 						provider: providerName,

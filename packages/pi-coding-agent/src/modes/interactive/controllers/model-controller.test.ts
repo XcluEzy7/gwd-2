@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { SettingsManager } from "../../../core/settings-manager.js";
 import {
 	findExactModelMatch,
 	prepareModelCandidates,
@@ -50,12 +51,17 @@ describe("model-controller", () => {
 	it("finds newly discovered exact matches after shared candidate preparation", async () => {
 		const discoveredModel = createModel("openai", "gpt-fresh");
 		let refreshCalls = 0;
+		let lastRefreshOptions: Record<string, unknown> | undefined;
 		const host = {
+			settingsManager: SettingsManager.inMemory({
+				modelDiscovery: { ttlMinutes: Number.NaN },
+			}),
 			session: {
 				scopedModels: [],
 				modelRegistry: {
-					async prepareDiscoveryRefresh() {
+					async prepareDiscoveryRefresh(options: Record<string, unknown>) {
 						refreshCalls += 1;
+						lastRefreshOptions = options;
 					},
 					getAllWithDiscovered() {
 						return [discoveredModel];
@@ -70,6 +76,7 @@ describe("model-controller", () => {
 		const model = await findExactModelMatch(host, "openai/gpt-fresh");
 		assert.equal(model, discoveredModel);
 		assert.equal(refreshCalls, 1);
+		assert.equal(lastRefreshOptions?.minTimeSinceLastFetchMs, 15 * 60 * 1000);
 	});
 
 	it("returns undefined for unknown exact matches when candidate set is empty", async () => {

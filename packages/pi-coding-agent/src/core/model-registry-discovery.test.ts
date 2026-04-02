@@ -153,6 +153,32 @@ describe("ModelRegistry — discovery preparation", () => {
 		);
 	});
 
+	it("keeps stale cache entries cheap while they are still inside the refresh cadence window", async () => {
+		const { registry, cache } = createRegistry({
+			auth: { openai: { type: "api_key", key: "sk-test" } },
+		});
+		cache.set("openai", [{ id: "stale-model" }], 1);
+		markEntryStale(cache, "openai");
+		const cachedEntry = cache.get("openai");
+		assert.ok(cachedEntry);
+		cachedEntry.fetchedAt = Date.now() - 2 * 60 * 1000;
+
+		await withStubbedFetch(
+			(async () => {
+				throw new Error("fetch should not run inside cadence window");
+			}) as typeof globalThis.fetch,
+			async () => {
+				const results = await registry.prepareDiscoveryRefresh({
+					providers: ["openai"],
+					minTimeSinceLastFetchMs: 15 * 60 * 1000,
+				});
+				assert.equal(results.length, 1);
+				assert.equal(results[0].source, "fresh-cache");
+				assert.equal(results[0].models[0].id, "stale-model");
+			},
+		);
+	});
+
 	it("forced refresh bypasses fresh cache and replaces discovered visibility immediately", async () => {
 		const { registry, cache } = createRegistry({
 			auth: { openai: { type: "api_key", key: "sk-test" } },

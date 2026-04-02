@@ -5,6 +5,10 @@ export interface ModelCandidateOptions {
 	includeScopedSessionModels?: boolean;
 }
 
+function getDiscoveryRefreshCadenceMs(host: any): number | undefined {
+	return host.settingsManager?.getModelDiscoveryRefreshCadenceMs?.();
+}
+
 export async function handleModelCommand(
 	host: any,
 	searchTerm?: string,
@@ -76,6 +80,9 @@ export async function prepareModelCandidates(
 	try {
 		await host.session.modelRegistry.prepareDiscoveryRefresh({
 			force: options.force,
+			minTimeSinceLastFetchMs: options.force
+				? undefined
+				: getDiscoveryRefreshCadenceMs(host),
 		});
 		return host.session.modelRegistry
 			.getAllWithDiscovered()
