@@ -165,6 +165,7 @@ test("Rule 4: ENOENT paths non-consecutive still triggers", () => {
   assert.ok(result!.reason.includes("/missing/skill"), `reason was: ${result!.reason}`);
 });
 
+
 // ─── Gap documentation: 3-unit cycle evades detection ────────────────────────
 
 test("Three-unit cycle A-B-C-A-B-C does NOT trigger stuck (documents gap L13)", () => {

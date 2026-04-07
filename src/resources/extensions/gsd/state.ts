@@ -468,9 +468,10 @@ export async function deriveStateFromDb(basePath: string): Promise<GSDState> {
       continue;
     }
 
-    // Ghost milestone check: no slices in DB AND no substantive files on disk
+    // Ghost milestone check: no slices in DB AND no substantive files on disk.
+    // Skip queued milestones — they are handled by the deferred-shell logic below (#3470).
     const slices = getMilestoneSlices(m.id);
-    if (slices.length === 0 && !isStatusDone(m.status)) {
+    if (slices.length === 0 && !isStatusDone(m.status) && m.status !== 'queued') {
       // Check disk for ghost detection
       if (isGhostMilestone(basePath, m.id)) continue;
     }

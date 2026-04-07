@@ -244,6 +244,7 @@ export async function handleCompleteSlice(
 
   // ── Guards + DB writes inside a single transaction (prevents TOCTOU) ───
   const completedAt = new Date().toISOString();
+  const originalSliceStatus = getSlice(params.milestoneId, params.sliceId)?.status ?? "pending";
   let guardError: string | null = null;
 
   transaction(() => {
@@ -277,8 +278,8 @@ export async function handleCompleteSlice(
     }
 
     // All guards passed — perform writes
-    insertMilestone({ id: params.milestoneId });
-    insertSlice({ id: params.sliceId, milestoneId: params.milestoneId });
+    insertMilestone({ id: params.milestoneId, title: params.milestoneId });
+    insertSlice({ id: params.sliceId, milestoneId: params.milestoneId, title: params.sliceId });
     updateSliceStatus(params.milestoneId, params.sliceId, "complete", completedAt);
   });
 
@@ -321,7 +322,7 @@ export async function handleCompleteSlice(
   } catch (renderErr) {
     // Disk render failed — roll back DB status so state stays consistent
     logWarning("tool", `complete_slice — disk render failed for ${params.milestoneId}/${params.sliceId}, rolling back DB status`, { error: (renderErr as Error).message });
-    updateSliceStatus(params.milestoneId, params.sliceId, 'pending');
+    updateSliceStatus(params.milestoneId, params.sliceId, originalSliceStatus);
     invalidateStateCache();
     return { error: `disk render failed: ${(renderErr as Error).message}` };
   }
