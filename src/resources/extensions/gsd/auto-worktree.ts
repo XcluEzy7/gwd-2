@@ -2011,7 +2011,11 @@ export function mergeMilestoneToMain(
   // capture unrelated files from other milestones.
   if (existsSync(worktreeCwd)) {
     let preTeardownBranch: string | null = null;
-    try { preTeardownBranch = nativeGetCurrentBranch(worktreeCwd); } catch { /* */ }
+    try {
+      preTeardownBranch = nativeGetCurrentBranch(worktreeCwd);
+    } catch {
+      // Branch detection failure is non-fatal — skip the auto-commit to be safe
+    }
     const isOnMilestoneBranch = preTeardownBranch === milestoneBranch;
 
     if (isOnMilestoneBranch) {
