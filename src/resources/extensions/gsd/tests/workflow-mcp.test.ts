@@ -20,8 +20,18 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const gsdDir = join(__dirname, "..");
 
+type ElicitPayload = {
+  message: string;
+  requestedSchema: { properties: Record<string, unknown>; required?: string[] };
+};
+
 function readSrc(file: string): string {
   return readFileSync(join(gsdDir, file), "utf-8");
+}
+
+function extractElicitPayload(request: unknown): ElicitPayload {
+  const payload = (request as { params?: unknown }).params ?? request;
+  return payload as ElicitPayload;
 }
 
 test("guided execute-task requires canonical task completion tool", () => {
@@ -190,15 +200,7 @@ test("workflow MCP launch config reaches mutation tools over stdio", async () =>
     { capabilities: { elicitation: {} } },
   );
   client.setRequestHandler(ElicitRequestSchema, async (request) => {
-    const elicitation = (request as {
-      params?: {
-        message: string;
-        requestedSchema: { properties: Record<string, unknown>; required?: string[] };
-      };
-    }).params ?? request as {
-      message: string;
-      requestedSchema: { properties: Record<string, unknown>; required?: string[] };
-    };
+    const elicitation = extractElicitPayload(request as unknown);
 
     assert.match(elicitation.message, /Please answer the following question/);
     assert.ok(elicitation.requestedSchema.properties.transport_mode);
@@ -362,17 +364,7 @@ test("workflow MCP ask_user_questions uses stdio elicitation round-trip", async 
   } | null = null;
 
   client.setRequestHandler(ElicitRequestSchema, async (request) => {
-    const params = (
-      request as {
-        params?: {
-          message: string;
-          requestedSchema: { properties: Record<string, unknown>; required?: string[] };
-        };
-      }
-    ).params ?? request as {
-      message: string;
-      requestedSchema: { properties: Record<string, unknown>; required?: string[] };
-    };
+    const params = extractElicitPayload(request as unknown);
 
     requestSeen = params;
 
@@ -418,12 +410,14 @@ test("workflow MCP ask_user_questions uses stdio elicitation round-trip", async 
     );
 
     assert.ok(requestSeen, "expected stdio transport to forward an elicitation request");
-    assert.match(requestSeen.message, /Please answer the following question/);
-    assert.ok(requestSeen.requestedSchema.properties.deployment);
-    assert.ok(requestSeen.requestedSchema.properties.deployment__note);
-    assert.ok(requestSeen.requestedSchema.required?.includes("deployment"));
+    const seen = requestSeen as ElicitPayload;
+    assert.match(seen.message, /Please answer the following question/);
+    assert.ok(seen.requestedSchema.properties.deployment);
+    assert.ok(seen.requestedSchema.properties.deployment__note);
+    assert.ok(seen.requestedSchema.required?.includes("deployment"));
 
-    const text = result.content.find((item) => item.type === "text");
+    const content = (result as { content: Array<{ type: string; text?: string }> }).content;
+    const text = content.find((item: { type: string; text?: string }) => item.type === "text");
     assert.ok(text && "text" in text);
     assert.equal(
       text.text,

@@ -52,7 +52,7 @@ test("shouldAutoPrepareWorkflowMcp stays disabled when neither transport nor pro
 });
 
 test("prepareWorkflowMcpForProject warns with /gsd mcp init guidance when prep fails", () => {
-  const notifications: Array<{ message: string; level: string }> = [];
+  const notifications: Array<{ message: string; level: "info" | "warning" | "error" | "success" }> = [];
   const result = prepareWorkflowMcpForProject(
     {
       model: { provider: "claude-code", baseUrl: "local://claude-code" },
@@ -61,8 +61,8 @@ test("prepareWorkflowMcpForProject warns with /gsd mcp init guidance when prep f
         isProviderRequestReady: () => true,
       },
       ui: {
-        notify: (message: string, level: string) => {
-          notifications.push({ message, level });
+        notify: (message: string, level?: "info" | "warning" | "error" | "success") => {
+          notifications.push({ message, level: level ?? "info" });
         },
       },
     },
