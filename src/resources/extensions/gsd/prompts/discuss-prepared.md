@@ -29,6 +29,7 @@ This discussion proceeds through four mandatory layers. At each layer:
 4. **Gate** — use `ask_user_questions` to get explicit sign-off before advancing
 
 **Do NOT skip layers.** Each layer builds on the previous. The user must explicitly approve each layer before you proceed.
+Never fabricate or simulate user input while moving through layers. Never generate fake transcript markers like `[User]`, `[Human]`, or `User:`. Ask one question round, then wait for the user's actual response before continuing.
 
 ---
 
@@ -79,7 +80,7 @@ Include:
 
 ### Resolve Scope — Mandatory Rounds
 
-After presenting your recommendation, you MUST complete these rounds in order. Each round uses `ask_user_questions` or direct questions. Do NOT skip rounds. Do NOT combine rounds. Do NOT jump to the Layer 1 Gate until all rounds are complete.
+After presenting your recommendation, you MUST complete these rounds in order. Each round uses `ask_user_questions` or direct questions. Do NOT skip rounds. Do NOT combine rounds. Do NOT jump to the Layer 1 Gate until all rounds are complete. **Each round is multi-turn: run one round, then wait for the user's response before starting the next round.**
 
 **Complexity calibration:** If the milestone is simple (1-2 slices, well-understood patterns, no ambiguity), you may compress rounds — but you must still explicitly address each round's topic, even if briefly. You may NOT skip rounds entirely. For complex milestones (3+ slices, novel architecture, significant ambiguity), give each round full treatment.
 
@@ -150,7 +151,7 @@ Cover:
 
 ### Resolve Architecture — Mandatory Rounds
 
-After presenting your recommendation, you MUST complete these rounds in order. Do NOT skip rounds. Do NOT jump to the Layer 2 Gate until all rounds are complete.
+After presenting your recommendation, you MUST complete these rounds in order. Do NOT skip rounds. Do NOT jump to the Layer 2 Gate until all rounds are complete. **Each round is multi-turn: run one round, then wait for the user's response before starting the next round.**
 
 **Complexity calibration:** If the milestone is simple (1-2 slices, well-understood patterns, no ambiguity), you may compress rounds — but you must still explicitly address each round's topic, even if briefly. You may NOT skip rounds entirely. For complex milestones (3+ slices, novel architecture, significant ambiguity), give each round full treatment.
 
@@ -270,7 +271,7 @@ Include:
 
 ### Resolve Quality — Mandatory Rounds
 
-After presenting your recommendation, you MUST complete these rounds in order. Do NOT skip rounds.
+After presenting your recommendation, you MUST complete these rounds in order. Do NOT skip rounds. **Each round is multi-turn: run one round, then wait for the user's response before starting the next round.**
 
 **Complexity calibration:** If the milestone is simple, you may compress rounds — but you must still explicitly address each round's topic, even if briefly. You may NOT skip rounds entirely.
 
